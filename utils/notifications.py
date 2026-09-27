@@ -30,6 +30,13 @@ async def get_control_bot_identity(token: str) -> dict[str, Any]:
     """Return the control bot's Bot API identity."""
     return await bot_api_request(token, "getMe")
 
+async def send_channel_sticker(token: str, channel_id: int, sticker_file_id: str) -> int:
+    """Send a configured sticker to a channel and return its message ID."""
+    result = await bot_api_request(token, "sendSticker", {
+        "chat_id": channel_id, "sticker": sticker_file_id,
+    })
+    return int(result["message_id"])
+
 def _download_keyboard(download_url: str, tutorial_url: str = "") -> dict[str, Any]:
     keyboard = [[{"text": "❐ 𝗪𝗮𝘁𝗰𝗵/𝗗𝗼𝘄𝗻𝗹𝗼𝗮𝗱 ❐", "url": download_url}]]
     if tutorial_url:

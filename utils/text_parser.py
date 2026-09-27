@@ -130,14 +130,19 @@ def extract_batch_link(text: str) -> str | None:
     return match.group(0) if match else None
 
 def format_template(template: str, **values: str) -> str:
-    """Format user templates with case-insensitive placeholder aliases."""
+    """Format templates case-insensitively and make branding clickable."""
+    values = dict(values)
+    if "owner_username" in values and values["owner_username"]:
+        values["owner_username"] = "@" + str(values["owner_username"]).lstrip("@")
     expanded = dict(values)
     for key, value in list(values.items()):
         expanded[key.lower()] = value
         expanded[key.upper()] = value
         expanded[key.capitalize()] = value
+        if key == "owner_username":
+            expanded["username"] = expanded["Username"] = expanded["USERNAME"] = value
     try:
-        return template.format_map(expanded)
+        return template.format_map(expanded).replace("@@", "@")
     except KeyError as exc:
         raise ValueError(
             f"Unknown template placeholder {exc}. Supported placeholders: " + ", ".join(sorted(values))

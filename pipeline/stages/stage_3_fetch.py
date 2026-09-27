@@ -6,7 +6,11 @@ from pipeline.stages.common import latest_id,newest_after
 async def run(ctx:PipelineContext,qid:int,files:list[dict])->list[dict]:
  state=await ctx.db.state(qid)
  existing=json.loads(state['fetched_files_json'] or '[]') if state else []
- if existing and any(item.get('episode') is not None for item in existing):return existing
+ if existing:
+  if not any(item.get('episode') is not None for item in existing):
+   missing={'480p','720p','1080p'}-{item['quality'] for item in existing}
+   if missing:raise RuntimeError('Failed to fetch mandatory qualities: '+', '.join(sorted(missing)))
+  return existing
  out=[];chat=ctx.cfg.source_bot
  for f in files:
   message=await ctx.client.get_messages(chat,f['source_message_id']); before=await latest_id(ctx.client,chat)

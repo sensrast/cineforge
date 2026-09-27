@@ -284,6 +284,15 @@ class ControlHandlers:
             if action == "choose":
                 value = ":".join(parts[3:]); await self._save_setting(key, value); return await self._field(query, key)
 
+    async def sticker(self, update, context):
+        key = context.user_data.get("setting_key")
+        if context.user_data.get("input_mode") != "setting" or not key or SETTING_DEFS.get(key, {}).get("kind") != "sticker":
+            return await update.message.reply_text("Open Settings → Channel & Captions and choose a sticker slot first.", reply_markup=back_home_keyboard())
+        value = update.message.sticker.file_id
+        await self._save_setting(key, value)
+        self._clear_input(context)
+        await update.message.reply_text(f"✅ {SETTING_DEFS[key]['title']} saved.", reply_markup=field_keyboard(key))
+
     async def cancel_login(self, update, context):
         await self.login.abort(self.owner_id); context.user_data.clear(); await update.message.reply_text("Login cancelled.", reply_markup=home_keyboard(self.runtime.running))
     async def logs(self, update, context):

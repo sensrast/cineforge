@@ -6,7 +6,8 @@ async def run(ctx:PipelineContext,qid:int,channel_id:int,forwarded:list[dict])->
  chat=ctx.cfg.filestore_bot;before=await latest_id(ctx.client,chat)
  await ctx.speed.call(lambda:ctx.client.send_message(chat,'/batch'),qid)
  prompt=await newest_after(ctx.client,chat,before,ctx.cfg.flow_timeout,lambda m:bool(m.text or m.caption))
- first,last=forwarded[0]['channel_message_id'],forwarded[-1]['channel_message_id']
+ first=forwarded[0].get('sticker_message_id') or forwarded[0]['channel_message_id']
+ last=forwarded[-1].get('end_sticker_message_id') or forwarded[-1]['channel_message_id']
  before=prompt.id;await ctx.speed.call(lambda:ctx.client.forward_messages(chat,channel_id,first),qid)
  second=await newest_after(ctx.client,chat,before,ctx.cfg.flow_timeout,lambda m:bool(m.text or m.caption))
  direct=extract_batch_link(second.text or second.caption or '')

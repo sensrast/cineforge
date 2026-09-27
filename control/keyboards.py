@@ -19,7 +19,13 @@ SETTING_DEFS: dict[str, dict[str, Any]] = {
     "max_search_pages": {"title": "Maximum Search Pages", "category": "content", "kind": "int_positive", "help": "Maximum Movie Hunt pages to scan per title."},
     "channel_name": {"title": "Channel Name Format", "category": "channel", "kind": "template", "help": "Use {movie} where the movie name should appear."},
     "channel_description": {"title": "Channel Description", "category": "channel", "kind": "template", "help": "Supports {movie} and {owner_username}. Send multiline text normally."},
-    "caption": {"title": "Clean File Caption", "category": "channel", "kind": "template", "help": "Supports {movie}, {quality}, and {owner_username}."},
+    "caption": {"title": "Clean File Caption", "category": "channel", "kind": "template", "help": "Supports {movie}, {quality}, {owner_username}, {season}, {episode}, and {episode_label}."},
+    "sticker_480p": {"title": "480p Sticker", "category": "channel", "kind": "sticker", "help": "Press Change Value, then send or forward the sticker to this bot."},
+    "sticker_720p": {"title": "720p Sticker", "category": "channel", "kind": "sticker", "help": "Press Change Value, then send or forward the sticker to this bot."},
+    "sticker_1080p": {"title": "1080p Sticker", "category": "channel", "kind": "sticker", "help": "Press Change Value, then send or forward the sticker to this bot."},
+    "sticker_2160p": {"title": "2160p / 4K Sticker", "category": "channel", "kind": "sticker", "help": "Optional sticker for 2160p or 4K files."},
+    "sticker_start": {"title": "Final Starting Sticker", "category": "channel", "kind": "sticker", "help": "Sent before the final download post."},
+    "sticker_end": {"title": "End Sticker", "category": "channel", "kind": "sticker", "help": "Used as the batch-ending sticker and sent after the final post."},
     "delay_between_actions": {"title": "Action Delay", "category": "speed", "kind": "float", "suffix": " sec", "help": "Applied only when Limits is enabled."},
     "delay_between_movies": {"title": "Movie Delay", "category": "speed", "kind": "float", "suffix": " sec", "help": "Delay after each processed movie when Limits is enabled."},
     "max_channels_per_day": {"title": "Channels per Day", "category": "speed", "kind": "int", "help": "0 means unlimited. Applied only when Limits is enabled."},
@@ -49,6 +55,8 @@ def display_value(key: str, value: str) -> str:
     definition = SETTING_DEFS.get(key, {})
     if definition.get("secret"):
         return "••••" + value[-4:] if len(value) >= 4 else "••••"
+    if definition.get("kind") == "sticker":
+        return "Configured ✅"
     suffix = definition.get("suffix", "")
     return _short(value) + suffix
 
