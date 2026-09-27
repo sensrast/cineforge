@@ -37,7 +37,7 @@ async def _fetch_page_items(ctx: PipelineContext, qid: int, current, items: list
         seen.add(key)
         await ctx.speed.delay()
 
-async def run(ctx: PipelineContext, qid: int, movie: str) -> list[dict]:
+async def run(ctx: PipelineContext, qid: int, movie: str, content_type: str = "movie") -> list[dict]:
     """Search Movie Hunt and walk edited-message pagination defensively."""
     chat = ctx.cfg.source_bot
     before = await latest_id(ctx.client, chat)
@@ -64,12 +64,12 @@ async def run(ctx: PipelineContext, qid: int, movie: str) -> list[dict]:
         seen_text.add(text)
         page_data = {"id": current.id, "text": text, "buttons": buttons(current)}
         pages.append(page_data)
-        page_matches = parse_results([page_data], desired, allow_non_hindi=(language == "any"), title_query=movie)
+        page_matches = parse_results([page_data], desired, allow_non_hindi=(language == "any"), title_query=movie, content_type=content_type)
         if any(item.get("is_series") for item in page_matches):
             series_mode = True
         if page_matches:
             await _fetch_page_items(ctx, qid, current, page_matches, prefetched, fetched_keys)
-        matches = parse_results(pages, desired, allow_non_hindi=(language == "any"), title_query=movie)
+        matches = parse_results(pages, desired, allow_non_hindi=(language == "any"), title_query=movie, content_type=content_type)
         found = {item["quality"] for item in matches}
         progress = (
             f"Movie Hunt page {len(pages)}: found {', '.join(sorted(found)) or 'no desired qualities'} "

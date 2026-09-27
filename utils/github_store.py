@@ -33,7 +33,7 @@ async def persist_state(db) -> bool:
     if not token or not repo:
         return False
     settings_rows = await db.db.fetchall("SELECT key,value FROM settings WHERE key != 'userbot_session_string'")
-    channel_rows = await db.db.fetchall("SELECT movie_name,channel_id,invite_link,batch_link,shortened_link FROM created_channels")
+    channel_rows = await db.db.fetchall("SELECT movie_name,content_type,channel_id,invite_link,batch_link,shortened_link FROM created_channels")
     state = {
         "settings": {row["key"]: row["value"] for row in settings_rows},
         "channels": [dict(row) for row in channel_rows],

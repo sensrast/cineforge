@@ -40,22 +40,23 @@ class Orchestrator:
 
     async def process(self, row: dict) -> None:
         qid, movie = row["id"], row["movie_name"]
+        content_type = row.get("content_type", "movie")
         resume_at = max(1, int(row.get("current_stage") or 1))
         stage = resume_at
         try:
             if resume_at <= 1:
-                existing = await self.ctx.db.find_channel_by_movie(movie)
-                if not existing:
-                    # Recover channels created before durable registry support by
+                existing = await self.ctx.db.find_channel_by_movie(movie, content_type)
+                if not existing and content_type == "movie":
+                    # Recover movie channels created before durable registry support by
                     # scanning the userbot's existing channel dialogs.
                     expected = normalize_title(format_template(self.ctx.cfg.channel_name, movie=movie, owner_username=self.ctx.cfg.owner_username))
                     async for dialog in self.ctx.client.get_dialogs(limit=500):
                         chat = dialog.chat
                         if chat.title and normalize_title(chat.title) == expected and "channel" in str(chat.type).lower():
                             invite = await self.ctx.speed.call(lambda c=chat: self.ctx.client.export_chat_invite_link(c.id), qid)
-                            await self.ctx.db.register_channel(qid, movie, chat.id, invite)
+                            await self.ctx.db.register_channel(qid, movie, chat.id, invite, content_type)
                             await persist_state(self.ctx.db)
-                            existing = await self.ctx.db.find_channel_by_movie(movie)
+                            existing = await self.ctx.db.find_channel_by_movie(movie, content_type)
                             break
                 if existing:
                     try:
@@ -70,7 +71,7 @@ class Orchestrator:
                         return
                     except Exception as exc:
                         text = str(exc).lower()
-                        if any(marker in text for marker in ("channel_invalid", "channel_private", "peer_id_invalid", "not found", "deleted")):
+                        if any(marker in text for marker in ("channel_invalid", "channel_private", "peer_id_invalid", "peer id invalid", "not found", "deleted")):
                             await self.ctx.db.remove_channel(existing["channel_id"])
                             await persist_state(self.ctx.db)
                         else:
@@ -79,7 +80,7 @@ class Orchestrator:
             if resume_at <= 1:
                 stage = 1
                 await self.ctx.db.set_stage(qid, stage, "searching")
-                source = await stage_1_search.run(self.ctx, qid, movie)
+                source = await stage_1_search.run(self.ctx, qid, movie, content_type)
             else:
                 source = self._json(state, "source_messages_json")
 
@@ -100,7 +101,7 @@ class Orchestrator:
             if resume_at <= 4:
                 stage = 4
                 await self.ctx.db.set_stage(qid, stage, "creating_channel")
-                channel = await stage_4_channel.run(self.ctx, qid, movie)
+                channel = await stage_4_channel.run(self.ctx, qid, movie, content_type)
             else:
                 channel = {"channel_id": state["channel_id"], "invite_link": state["invite_link"]}
 

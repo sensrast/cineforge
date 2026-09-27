@@ -1,6 +1,7 @@
 PRAGMA foreign_keys=ON;
 CREATE TABLE IF NOT EXISTS queue (
  id INTEGER PRIMARY KEY AUTOINCREMENT, movie_name TEXT NOT NULL, search_query TEXT NOT NULL,
+ content_type TEXT NOT NULL DEFAULT 'movie',
  status TEXT NOT NULL DEFAULT 'pending', current_stage INTEGER NOT NULL DEFAULT 0,
  error_message TEXT, retry_count INTEGER NOT NULL DEFAULT 0, requested_by INTEGER,
  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -15,7 +16,7 @@ CREATE TABLE IF NOT EXISTS pipeline_state (
 );
 CREATE TABLE IF NOT EXISTS created_channels (
  id INTEGER PRIMARY KEY AUTOINCREMENT, queue_id INTEGER REFERENCES queue(id), movie_name TEXT NOT NULL,
- channel_id INTEGER UNIQUE, invite_link TEXT, batch_link TEXT, shortened_link TEXT,
+ content_type TEXT NOT NULL DEFAULT 'movie', channel_id INTEGER UNIQUE, invite_link TEXT, batch_link TEXT, shortened_link TEXT,
  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);

@@ -38,6 +38,13 @@ class ParserTests(unittest.TestCase):
   buttons=[{'text':'Download 01 : 500 MB'},{'text':'Download 2 : 1 GB'}]
   found=parse_results([{'id':20,'text':text,'buttons':buttons}],{'480p','720p'},title_query='Money Heist')
   self.assertEqual([(x['season'],x['episode'],x['quality']) for x in found],[(1,1,'480p'),(1,1,'720p')])
+ def test_movie_mode_rejects_episodic_animal_results(self):
+  text=('Name:\nAnimal 2023 Hindi 720p\nSize: 1 GB\nClick Download 1\n'
+        'Name:\nAnimal Kingdom S01E01 Hindi 720p\nSize: 900 MB\nClick Download 2')
+  buttons=[{'text':'Download 1 : 1 GB'},{'text':'Download 2 : 900 MB'}]
+  found=parse_results([{'id':30,'text':text,'buttons':buttons}],{'720p'},title_query='Animal',content_type='movie')
+  self.assertEqual(len(found),1)
+  self.assertIn('Animal 2023',found[0]['source_name'])
  def test_links_titles(self):
   self.assertEqual(extract_batch_link('https://t.me/movieinhindibot?start=abc-2'),'https://t.me/movieinhindibot?start=abc-2')
   self.assertEqual(clean_title('Pushpa 2 in Hindi'),'Pushpa 2')

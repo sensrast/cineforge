@@ -7,7 +7,7 @@ from utils.github_store import persist_state
 from control.keyboards import (
     SETTING_DEFS, CATEGORIES, display_value, home_keyboard, settings_root_keyboard,
     category_keyboard, field_keyboard, input_cancel_keyboard, confirmation_keyboard,
-    back_home_keyboard, status_keyboard,
+    back_home_keyboard, status_keyboard, content_type_keyboard,
 )
 
 CFG_ATTRS = {
@@ -123,13 +123,22 @@ class ControlHandlers:
 
     async def add(self, update, context):
         name = " ".join(context.args).strip()
-        if not name: return await update.message.reply_text("Usage: /add <movie name>")
-        qid = await self.db.add_movie(name, self.owner_id)
-        await update.message.reply_text(f"✅ Queued #{qid}: {name}")
+        if not name: return await update.message.reply_text("Usage: /add <title>")
+        context.user_data["pending_title"] = name
+        await update.message.reply_text(f"Choose content type for: {name}", reply_markup=content_type_keyboard("type"))
+
+    async def movie(self, update, context):
+        name=" ".join(context.args).strip()
+        if not name:return await update.message.reply_text("Usage: /movie <title>")
+        qid=await self.db.add_movie(name,self.owner_id,"movie");await update.message.reply_text(f"✅ Movie queued #{qid}: {name}")
+
+    async def series(self, update, context):
+        name=" ".join(context.args).strip()
+        if not name:return await update.message.reply_text("Usage: /series <title>")
+        qid=await self.db.add_movie(name,self.owner_id,"series");await update.message.reply_text(f"✅ Series queued #{qid}: {name}")
 
     async def batch(self, update, context):
-        context.user_data["input_mode"] = "batch"
-        await update.message.reply_text("Send movie titles, one per line.", reply_markup=back_home_keyboard())
+        await update.message.reply_text("Choose the content type for this batch.", reply_markup=content_type_keyboard("batchtype"))
 
     async def text(self, update, context):
         mode = context.user_data.get("input_mode"); text = update.message.text.strip()
@@ -172,9 +181,13 @@ class ControlHandlers:
             except Exception as exc:
                 await update.effective_chat.send_message(f"❌ {exc}\n\nPlease try again or press Cancel.", reply_markup=input_cancel_keyboard(key))
             return
-        names = [line.strip() for line in text.splitlines() if line.strip()] if mode == "batch" else [text]
-        context.user_data.clear(); ids = [await self.db.add_movie(name, self.owner_id) for name in names]
-        await update.message.reply_text(f"✅ Queued {len(ids)} title(s): " + ", ".join(map(str, ids)), reply_markup=home_keyboard(self.runtime.running))
+        if mode in {"batch", "single_typed"}:
+            kind=context.user_data.get("content_type","movie")
+            names=[line.strip() for line in text.splitlines() if line.strip()] if mode=="batch" else [text]
+            context.user_data.clear();ids=[await self.db.add_movie(name,self.owner_id,kind) for name in names]
+            return await update.message.reply_text(f"✅ Queued {len(ids)} {kind} title(s): "+", ".join(map(str,ids)),reply_markup=home_keyboard(self.runtime.running))
+        context.user_data["pending_title"]=text
+        await update.message.reply_text(f"Is this a movie or series?\n\n{text}",reply_markup=content_type_keyboard("type"))
 
     def _validate_setting(self, key: str, value: str) -> str:
         definition = SETTING_DEFS[key]; kind = definition["kind"]; value = value.strip()
@@ -216,7 +229,7 @@ class ControlHandlers:
         rows = await self.db.queue_list(); today = await self.db.count_today(); paused = await self.db.setting("pipeline_paused", "false")
         lines = [f'📊 Live Status', f'Pipeline: {"PAUSED" if paused == "true" else "RUNNING"}', f'Userbot: {"CONNECTED" if self.runtime.running else "LOGIN REQUIRED"}', f"Channels today: {today}", f"Active queue: {len(rows)}", ""]
         for row in rows[:15]:
-            line = f"• #{row['id']} {row['movie_name']} — stage {row['current_stage']}/10 ({row['status']})"
+            line = f"• #{row['id']} [{row['content_type'].upper()}] {row['movie_name']} — stage {row['current_stage']}/10 ({row['status']})"
             if row['status'] == 'failed' and row['error_message']:
                 line += f"\n  Error: {row['error_message'][:180]}"
             lines.append(line)
@@ -234,6 +247,17 @@ class ControlHandlers:
 
     async def callback(self, update, context):
         query = update.callback_query; await query.answer(); data = query.data
+        if data.startswith("addmode:"):
+            kind=data.split(":",1)[1];context.user_data.clear();context.user_data.update(input_mode="single_typed",content_type=kind)
+            return await self._edit(query,f"Send the {kind} title.",back_home_keyboard())
+        if data.startswith("batchtype:"):
+            kind=data.split(":",1)[1];context.user_data.clear();context.user_data.update(input_mode="batch",content_type=kind)
+            return await self._edit(query,f"Send {kind} titles, one per line.",back_home_keyboard())
+        if data.startswith("type:"):
+            kind=data.split(":",1)[1];title=context.user_data.pop("pending_title","")
+            if not title:return await self._edit(query,"The pending title expired. Send it again.",home_keyboard(self.runtime.running))
+            qid=await self.db.add_movie(title,self.owner_id,kind);context.user_data.clear()
+            return await self._edit(query,f"✅ {kind.title()} queued #{qid}: {title}",home_keyboard(self.runtime.running))
         if data.startswith("nav:"):
             self._clear_input(context)
             if data == "nav:home":

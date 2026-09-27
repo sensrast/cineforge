@@ -3,7 +3,7 @@ from utils.notifications import notify_control_bot
 from utils.github_store import persist_state
 from utils.text_parser import format_template
 
-async def run(ctx: PipelineContext, qid: int, movie: str) -> dict:
+async def run(ctx: PipelineContext, qid: int, movie: str, content_type: str = "movie") -> dict:
     """Create the channel and send only its invite link to the owner.
 
     Owner and file-store administrator promotion intentionally happen in Stage
@@ -24,7 +24,7 @@ async def run(ctx: PipelineContext, qid: int, movie: str) -> dict:
     await ctx.speed.call(lambda: ctx.client.get_chat(channel.id), qid)
     invite = await ctx.speed.call(lambda: ctx.client.export_chat_invite_link(channel.id), qid)
     await ctx.db.patch_state(qid, channel_id=channel.id, invite_link=invite)
-    await ctx.db.register_channel(qid, movie, channel.id, invite)
+    await ctx.db.register_channel(qid, movie, channel.id, invite, content_type)
     await persist_state(ctx.db)
 
     # Send through the control bot, which already has a private chat with the

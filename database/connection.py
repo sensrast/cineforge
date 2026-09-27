@@ -15,7 +15,12 @@ class Database:
         await self.conn.execute("PRAGMA journal_mode=WAL")
     async def init_schema(self, schema: Path) -> None:
         assert self.conn
-        await self.conn.executescript(schema.read_text()); await self.conn.commit()
+        await self.conn.executescript(schema.read_text())
+        for table in ("queue", "created_channels"):
+            columns={row[1] for row in await (await self.conn.execute(f"PRAGMA table_info({table})")).fetchall()}
+            if "content_type" not in columns:
+                await self.conn.execute(f"ALTER TABLE {table} ADD COLUMN content_type TEXT NOT NULL DEFAULT 'movie'")
+        await self.conn.commit()
     async def execute(self, sql: str, params: tuple[Any,...]=()) -> int:
         assert self.conn
         async with self.lock:

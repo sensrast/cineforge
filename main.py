@@ -98,8 +98,8 @@ async def restore_render_state(queries: Queries) -> None:
             await queries.set_setting(str(key), str(value))
         for item in state.get("channels", []):
             await queries.db.execute(
-                "INSERT OR IGNORE INTO created_channels(movie_name,channel_id,invite_link,batch_link,shortened_link) VALUES(?,?,?,?,?)",
-                (item.get("movie_name", ""), int(item["channel_id"]), item.get("invite_link"), item.get("batch_link"), item.get("shortened_link")),
+                "INSERT OR IGNORE INTO created_channels(movie_name,content_type,channel_id,invite_link,batch_link,shortened_link) VALUES(?,?,?,?,?,?)",
+                (item.get("movie_name", ""), item.get("content_type", "movie"), int(item["channel_id"]), item.get("invite_link"), item.get("batch_link"), item.get("shortened_link")),
             )
     except Exception:
         log.exception("Could not restore durable CineForge state")
@@ -142,8 +142,9 @@ async def run():
         try:
             await control.initialize(); await control.start(); await control.updater.start_polling(drop_pending_updates=False)
             await control.bot.set_my_commands([
-                BotCommand("start", "Open the admin panel"), BotCommand("add", "Queue one movie"),
-                BotCommand("batch", "Queue multiple movies"), BotCommand("status", "Show live pipeline status"),
+                BotCommand("start", "Open the admin panel"), BotCommand("add", "Choose type for one title"),
+                BotCommand("movie", "Queue a movie directly"), BotCommand("series", "Queue a series directly"),
+                BotCommand("batch", "Choose type and queue multiple titles"), BotCommand("status", "Show live pipeline status"),
                 BotCommand("settings", "Open detailed settings"), BotCommand("logs", "Show recent activity"),
                 BotCommand("pause", "Pause the queue worker"), BotCommand("resume", "Resume the queue worker"),
                 BotCommand("cancel", "Cancel a pending queue item"), BotCommand("retry", "Retry a failed item"),

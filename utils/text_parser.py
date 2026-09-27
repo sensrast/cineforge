@@ -62,7 +62,7 @@ def parse_episode(text: str) -> tuple[int | None, int | None]:
     episode = re.search(r"(?i)\bE(?:p(?:isode)?)?[ ._-]*(\d{1,3})\b", text)
     return (1, int(episode.group(1))) if episode else (None, None)
 
-def parse_results(messages: list[dict[str, Any]], desired: set[str], allow_non_hindi: bool = False, title_query: str = "") -> list[dict[str, Any]]:
+def parse_results(messages: list[dict[str, Any]], desired: set[str], allow_non_hindi: bool = False, title_query: str = "", content_type: str = "auto") -> list[dict[str, Any]]:
     """Map each matching title block to its numbered Download button."""
     wanted = {normalize_quality(item.strip()) for item in desired}
     best: dict[tuple, dict[str, Any]] = {}
@@ -79,6 +79,11 @@ def parse_results(messages: list[dict[str, Any]], desired: set[str], allow_non_h
                 continue
             source_name = re.sub(r"(?is)^.*?Name\s*:\s*", "", block).splitlines()[0].strip()
             if title_query and not title_matches(title_query, source_name):
+                continue
+            season, episode = parse_episode(source_name)
+            if content_type == "movie" and episode is not None:
+                continue
+            if content_type == "series" and episode is None:
                 continue
             quality_match = QUALITY_RE.search(block)
             if not quality_match:
@@ -105,7 +110,6 @@ def parse_results(messages: list[dict[str, Any]], desired: set[str], allow_non_h
             if not candidates:
                 continue
             button = candidates[0]
-            season, episode = parse_episode(source_name)
             item = {
                 "quality": quality,
                 "season": season,

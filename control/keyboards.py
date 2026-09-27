@@ -63,8 +63,15 @@ def display_value(key: str, value: str) -> str:
 def home_keyboard(logged_in: bool) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("✅ Userbot Connected" if logged_in else "🔐 Login Userbot", callback_data="auth:status" if logged_in else "auth:start")],
+        [InlineKeyboardButton("🎬 Add Movie", callback_data="addmode:movie"), InlineKeyboardButton("📺 Add Series", callback_data="addmode:series")],
         [InlineKeyboardButton("⚙️ Settings", callback_data="nav:settings"), InlineKeyboardButton("📊 Live Status", callback_data="nav:status")],
         [InlineKeyboardButton("📝 Recent Logs", callback_data="nav:logs"), InlineKeyboardButton("❓ Help", callback_data="nav:help")],
+    ])
+
+def content_type_keyboard(prefix: str = "type") -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🎬 Movie", callback_data=f"{prefix}:movie"), InlineKeyboardButton("📺 Series", callback_data=f"{prefix}:series")],
+        [InlineKeyboardButton("⬅️ Back to Home", callback_data="nav:home")],
     ])
 
 def settings_root_keyboard(values: dict[str, str]) -> InlineKeyboardMarkup:
