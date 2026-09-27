@@ -2,6 +2,7 @@ from __future__ import annotations
 import asyncio
 from pipeline.context import PipelineContext
 from pipeline.stages.common import latest_id, buttons, newest_after
+from utils.text_parser import parse_results, normalize_quality
 
 async def run(ctx: PipelineContext, qid: int, movie: str) -> list[dict]:
     """Search Movie Hunt and walk edited-message pagination defensively."""
@@ -15,13 +16,27 @@ async def run(ctx: PipelineContext, qid: int, movie: str) -> list[dict]:
     pages: list[dict] = []
     seen_text: set[str] = set()
     max_pages = max(1, min(100, int(await ctx.db.setting("max_search_pages", str(ctx.cfg.max_search_pages)))))
+    desired_raw = [item.strip() for item in (await ctx.db.setting("desired_qualities", ctx.cfg.qualities)).split(",") if item.strip()]
+    desired = {normalize_quality(item) for item in desired_raw}
+    language = (await ctx.db.setting("language_filter", ctx.cfg.language_filter)).strip().lower()
     for _ in range(max_pages):
         text = current.text or current.caption or ""
         if text in seen_text:
             break
         seen_text.add(text)
         pages.append({"id": current.id, "text": text, "buttons": buttons(current)})
-        await ctx.db.log(f"Movie Hunt search page {len(pages)} collected", "INFO", qid)
+        matches = parse_results(pages, desired, allow_non_hindi=(language == "any"))
+        found = {item["quality"] for item in matches}
+        await ctx.db.log(
+            f"Movie Hunt page {len(pages)}: found {', '.join(sorted(found)) or 'no desired qualities'} "
+            f"({len(found)}/{len(desired)})",
+            "INFO", qid,
+        )
+        # Do not paginate once every configured quality has a usable download
+        # button. Stage 2 consumes these results and Stage 3 clicks each button.
+        if desired and desired.issubset(found):
+            await ctx.db.log("All desired qualities found; stopping pagination", "INFO", qid)
+            break
         next_pos = None
         if current.reply_markup:
             for row_index, row in enumerate(current.reply_markup.inline_keyboard):
