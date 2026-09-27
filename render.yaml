@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: cineforge
+    runtime: docker
+    plan: starter
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: DATABASE_PATH
+        value: /var/data/cineforge.db
+      - key: USERBOT_SESSION_STRING
+        sync: false
+      - key: API_ID
+        sync: false
+      - key: API_HASH
+        sync: false
+      - key: CONTROL_BOT_TOKEN
+        sync: false
+      - key: OWNER_USER_ID
+        sync: false
+      - key: OWNER_USERNAME
+        sync: false
+      - key: AROLINKS_API_KEY
+        sync: false
+      - key: TUTORIAL_LINK
+        sync: false
+    disk:
+      name: cineforge-data
+      mountPath: /var/data
+      sizeGB: 1
