@@ -64,14 +64,27 @@ async def _send_and_wait(ctx: PipelineContext, qid: int, text: str, predicate=No
     return await _wait_changed(ctx, before, predicate)
 
 async def _click_and_wait(ctx: PipelineContext, qid: int, message, patterns: list[str], predicate=None):
-    before = await _snapshot(ctx)
-    await ctx.speed.delay()
-    if not await click_matching(message, patterns):
-        # The panel may have been edited between retrieval and click; refetch it.
-        message = await _wait_visible_button(ctx, patterns)
-        if not await click_matching(message, patterns):
-            raise RuntimeError("Catalog button not found. Expected one of: " + ", ".join(patterns))
-    return await _wait_changed(ctx, before, predicate)
+    last_error = None
+    for attempt in range(3):
+        before = await _snapshot(ctx)
+        await ctx.speed.delay()
+        if attempt:
+            message = await _wait_visible_button(ctx, patterns)
+        try:
+            if not await click_matching(message, patterns):
+                message = await _wait_visible_button(ctx, patterns)
+                if not await click_matching(message, patterns):
+                    raise RuntimeError("Catalog button not found. Expected one of: " + ", ".join(patterns))
+            return await _wait_changed(ctx, before, predicate)
+        except Exception as exc:
+            last_error = exc
+            text = str(exc).lower()
+            if "data_invalid" not in text and "encrypted data is invalid" not in text and "timed out" not in text:
+                raise
+            # Callback data can be invalidated when the bot edits its keyboard
+            # between retrieval and click. Refetch the latest panel and retry.
+            await asyncio.sleep(0.75)
+    raise RuntimeError(f"Catalog callback remained stale after retries: {last_error}")
 
 async def run(ctx: PipelineContext, qid: int, movie: str, invite: str, source_message_id: int) -> bool:
     chat = ctx.cfg.catalog_bot
@@ -104,12 +117,21 @@ async def run(ctx: PipelineContext, qid: int, movie: str, invite: str, source_me
     message = await _click_and_wait(ctx, qid, message, [r"web.*series" if series else r"movies?"])
 
     genre = await ctx.db.setting("default_genre", ctx.cfg.default_genre)
-    message = await _click_and_wait(ctx, qid, message, [re.escape(genre), r"action", r"drama", r"genre"])
-    if message.reply_markup and _message_has_button(message, [r"done", r"✅"]):
-        message = await _click_and_wait(ctx, qid, message, [r"done", r"✅"])
+    genre_patterns = [re.escape(genre), r"action", r"drama", r"genre"]
+    genre_panel = await _wait_visible_button(ctx, genre_patterns)
+    await _click_and_wait(ctx, qid, genre_panel, genre_patterns)
+
+    # Genre selection is multi-select. Always refetch and click Done before
+    # looking for the language panel; never infer this from an intermediate
+    # message returned by the genre callback.
+    done_patterns = [r"(?:✅\s*)?done", r"finish(?:ed)?", r"continue"]
+    done_panel = await _wait_visible_button(ctx, done_patterns)
+    await _click_and_wait(ctx, qid, done_panel, done_patterns)
 
     language = await ctx.db.setting("catalog_language", ctx.cfg.catalog_language)
-    message = await _click_and_wait(ctx, qid, message, [re.escape(language), r"hindi"])
+    language_patterns = [re.escape(language), r"hindi"]
+    language_panel = await _wait_visible_button(ctx, language_patterns)
+    message = await _click_and_wait(ctx, qid, language_panel, language_patterns)
     message = await _click_and_wait(ctx, qid, message, [r"ongoing" if series else r"completed"])
     message = await _send_and_wait(ctx, qid, "0")
     message = await _click_and_wait(ctx, qid, message, [r"safe", r"no", r"❌"])

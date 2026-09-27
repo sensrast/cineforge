@@ -30,6 +30,12 @@ async def get_control_bot_identity(token: str) -> dict[str, Any]:
     """Return the control bot's Bot API identity."""
     return await bot_api_request(token, "getMe")
 
+def _download_keyboard(download_url: str, tutorial_url: str = "") -> dict[str, Any]:
+    keyboard = [[{"text": "❐ 𝗪𝗮𝘁𝗰𝗵/𝗗𝗼𝘄𝗻𝗹𝗼𝗮𝗱 ❐", "url": download_url}]]
+    if tutorial_url:
+        keyboard.append([{"text": "❓ How to Open Link", "url": tutorial_url}])
+    return {"inline_keyboard": keyboard}
+
 async def send_download_post(
     token: str,
     channel_id: int,
@@ -37,14 +43,11 @@ async def send_download_post(
     download_url: str,
     tutorial_url: str = "",
 ) -> int:
-    """Send and pin a channel post containing URL inline buttons."""
-    keyboard = [[{"text": "🚀 Download Movie", "url": download_url}]]
-    if tutorial_url:
-        keyboard.append([{"text": "❓ How to Open Link", "url": tutorial_url}])
+    """Send and pin a new channel post containing URL inline buttons."""
     result = await bot_api_request(token, "sendMessage", {
         "chat_id": channel_id,
         "text": text,
-        "reply_markup": {"inline_keyboard": keyboard},
+        "reply_markup": _download_keyboard(download_url, tutorial_url),
         "disable_web_page_preview": True,
     })
     message_id = int(result["message_id"])
@@ -54,3 +57,24 @@ async def send_download_post(
         "disable_notification": True,
     })
     return message_id
+
+async def edit_download_post(
+    token: str,
+    channel_id: int,
+    message_id: int,
+    text: str,
+    download_url: str,
+    tutorial_url: str = "",
+) -> None:
+    """Update an existing post in place; never create a duplicate on retry."""
+    try:
+        await bot_api_request(token, "editMessageText", {
+            "chat_id": channel_id,
+            "message_id": message_id,
+            "text": text,
+            "reply_markup": _download_keyboard(download_url, tutorial_url),
+            "disable_web_page_preview": True,
+        })
+    except RuntimeError as exc:
+        if "message is not modified" not in str(exc).lower():
+            raise
