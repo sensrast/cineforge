@@ -15,6 +15,7 @@ SETTING_DEFS: dict[str, dict[str, Any]] = {
     "tutorial_link": {"title": "Tutorial Link", "category": "links", "kind": "url_optional", "help": "Optional How to Open Link button destination."},
     "desired_qualities": {"title": "Desired Qualities", "category": "content", "kind": "qualities", "help": "Comma-separated list, such as 480p,720p,1080p,2160p."},
     "language_filter": {"title": "Source Language", "category": "content", "kind": "choice", "choices": ["Hindi", "Any"], "help": "Hindi accepts Hindi and Dual Audio. Any disables language filtering."},
+    "search_strategy": {"title": "Search Strategy", "category": "content", "kind": "choice", "choices": ["First Matching Page", "All Desired Qualities", "Scan Every Page"], "help": "First Matching Page stops immediately when a page has usable files, preventing earlier buttons from disappearing."},
     "max_search_pages": {"title": "Maximum Search Pages", "category": "content", "kind": "int_positive", "help": "Maximum Movie Hunt pages to scan per title."},
     "channel_name": {"title": "Channel Name Format", "category": "channel", "kind": "template", "help": "Use {movie} where the movie name should appear."},
     "channel_description": {"title": "Channel Description", "category": "channel", "kind": "template", "help": "Supports {movie} and {owner_username}. Send multiline text normally."},

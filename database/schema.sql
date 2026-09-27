@@ -24,6 +24,6 @@ CREATE TABLE IF NOT EXISTS daily_stats (date TEXT PRIMARY KEY, channels_created 
 INSERT OR IGNORE INTO settings(key,value) VALUES
  ('limits_enabled','false'),('delay_between_actions','0.0'),('delay_between_movies','0.0'),
  ('max_channels_per_day','0'),('desired_qualities','480p,720p,1080p,2160p,4K'),
- ('language_filter','Hindi'),('max_search_pages','32'),('source_timeout','30'),('flow_timeout','60'),
+ ('language_filter','Hindi'),('search_strategy','First Matching Page'),('max_search_pages','32'),('source_timeout','30'),('flow_timeout','60'),
  ('default_genre','Action'),('catalog_language','Hindi'),
  ('auto_catalog','true'),('pipeline_paused','false');

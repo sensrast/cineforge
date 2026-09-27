@@ -27,9 +27,18 @@ def parse_results(messages: list[dict[str, Any]], desired: set[str], allow_non_h
     wanted = {normalize_quality(item.strip()) for item in desired}
     best: dict[str, dict[str, Any]] = {}
     for message in messages:
+        full_text = message.get("text", "") or ""
         all_buttons = message.get("buttons", [])
-        for block in _blocks(message.get("text", "") or ""):
-            if not allow_non_hindi and not LANG_RE.search(block):
+        blocks = _blocks(full_text)
+        # Some Movie Hunt layouts print "Hindi" once in a page heading rather
+        # than repeating it in every Name block. Treat only that heading as
+        # shared language context; do not let one Hindi result mark mixed
+        # language blocks as Hindi.
+        name_match = re.search(r"(?i)\bName\s*:", full_text)
+        page_header = full_text[:name_match.start()] if name_match else ""
+        header_is_hindi = bool(LANG_RE.search(page_header))
+        for block in blocks:
+            if not allow_non_hindi and not (LANG_RE.search(block) or header_is_hindi):
                 continue
             quality_match = QUALITY_RE.search(block)
             if not quality_match:

@@ -40,6 +40,7 @@ class Config:
     flow_timeout: int = _int("BOT_FLOW_TIMEOUT", 60)
     max_search_pages: int = _int("MAX_SEARCH_PAGES", 32)
     language_filter: str = os.getenv("LANGUAGE_FILTER", "Hindi")
+    search_strategy: str = os.getenv("SEARCH_STRATEGY", "First Matching Page")
     default_genre: str = os.getenv("DEFAULT_CATALOG_GENRE", "Action")
     catalog_language: str = os.getenv("CATALOG_LANGUAGE", "Hindi")
     owner_join_timeout: int = _int("OWNER_JOIN_TIMEOUT", 3600)

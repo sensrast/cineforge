@@ -90,7 +90,7 @@ async def apply_saved_settings(queries: Queries) -> None:
         "arolinks_api_key": ("arolinks_key", str), "arolinks_url": ("arolinks_url", str),
         "tutorial_link": ("tutorial_link", str), "channel_name": ("channel_name", str),
         "channel_description": ("channel_description", str), "caption": ("caption", str), "desired_qualities": ("qualities", str),
-        "language_filter": ("language_filter", str), "max_search_pages": ("max_search_pages", int),
+        "language_filter": ("language_filter", str), "search_strategy": ("search_strategy", str), "max_search_pages": ("max_search_pages", int),
         "source_timeout": ("source_timeout", int), "flow_timeout": ("flow_timeout", int),
         "default_genre": ("default_genre", str), "catalog_language": ("catalog_language", str),
         "delay_between_actions": ("delay_actions", float), "delay_between_movies": ("delay_movies", float),
