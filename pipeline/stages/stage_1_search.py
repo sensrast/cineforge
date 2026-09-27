@@ -14,7 +14,8 @@ async def run(ctx: PipelineContext, qid: int, movie: str) -> list[dict]:
     )
     pages: list[dict] = []
     seen_text: set[str] = set()
-    for _ in range(32):
+    max_pages = max(1, min(100, int(await ctx.db.setting("max_search_pages", str(ctx.cfg.max_search_pages)))))
+    for _ in range(max_pages):
         text = current.text or current.caption or ""
         if text in seen_text:
             break

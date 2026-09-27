@@ -1,4 +1,5 @@
 from __future__ import annotations
+import re
 from pipeline.context import PipelineContext
 from pipeline.stages.common import latest_id,newest_after,click_matching
 from utils.text_parser import clean_title,is_series
@@ -25,9 +26,11 @@ async def run(ctx:PipelineContext,qid:int,movie:str,invite:str,source_message_id
  if msg.reply_markup:msg=await _click(ctx,qid,msg,[r'Skip',r'⏩'])
  before=await latest_id(ctx.client,chat);msg=await _send(ctx,qid,invite,before)
  series=is_series(movie);msg=await _click(ctx,qid,msg,[r'Web Series' if series else r'Movies'])
- msg=await _click(ctx,qid,msg,[r'Action',r'Drama',r'Genre'])
+ genre=await ctx.db.setting('default_genre',ctx.cfg.default_genre)
+ msg=await _click(ctx,qid,msg,[re.escape(genre),r'Action',r'Drama',r'Genre'])
  if msg.reply_markup:msg=await _click(ctx,qid,msg,[r'Done',r'✅'])
- msg=await _click(ctx,qid,msg,[r'Hindi'])
+ language=await ctx.db.setting('catalog_language',ctx.cfg.catalog_language)
+ msg=await _click(ctx,qid,msg,[re.escape(language),r'Hindi'])
  msg=await _click(ctx,qid,msg,[r'Ongoing' if series else r'Completed'])
  before=await latest_id(ctx.client,chat);msg=await _send(ctx,qid,'0',before)
  msg=await _click(ctx,qid,msg,[r'Safe',r'No',r'❌'])

@@ -6,6 +6,7 @@ import logging
 import signal
 from pathlib import Path
 from aiohttp import web
+from telegram import BotCommand
 from config import settings
 from database.connection import Database
 from database.queries import Queries
@@ -89,6 +90,9 @@ async def apply_saved_settings(queries: Queries) -> None:
         "arolinks_api_key": ("arolinks_key", str), "arolinks_url": ("arolinks_url", str),
         "tutorial_link": ("tutorial_link", str), "channel_name": ("channel_name", str),
         "channel_description": ("channel_description", str), "caption": ("caption", str), "desired_qualities": ("qualities", str),
+        "language_filter": ("language_filter", str), "max_search_pages": ("max_search_pages", int),
+        "source_timeout": ("source_timeout", int), "flow_timeout": ("flow_timeout", int),
+        "default_genre": ("default_genre", str), "catalog_language": ("catalog_language", str),
         "delay_between_actions": ("delay_actions", float), "delay_between_movies": ("delay_movies", float),
         "max_channels_per_day": ("max_channels", int),
     }
@@ -113,6 +117,13 @@ async def run():
     while True:
         try:
             await control.initialize(); await control.start(); await control.updater.start_polling(drop_pending_updates=False)
+            await control.bot.set_my_commands([
+                BotCommand("start", "Open the admin panel"), BotCommand("add", "Queue one movie"),
+                BotCommand("batch", "Queue multiple movies"), BotCommand("status", "Show live pipeline status"),
+                BotCommand("settings", "Open detailed settings"), BotCommand("logs", "Show recent activity"),
+                BotCommand("pause", "Pause the queue worker"), BotCommand("resume", "Resume the queue worker"),
+                BotCommand("cancel", "Cancel a pending queue item"), BotCommand("retry", "Retry a failed item"),
+            ])
             health_app["control_bot"] = True
             break
         except Exception:

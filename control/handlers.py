@@ -1,14 +1,23 @@
 from __future__ import annotations
 from functools import wraps
 from telegram import Update
+from telegram.error import BadRequest
 from telegram.ext import ContextTypes
-from control.keyboards import home_keyboard, settings_keyboard, submenu_keyboard, EDITABLE_SETTINGS
+from control.keyboards import (
+    SETTING_DEFS, CATEGORIES, display_value, home_keyboard, settings_root_keyboard,
+    category_keyboard, field_keyboard, input_cancel_keyboard, confirmation_keyboard,
+    back_home_keyboard,
+)
 
 CFG_ATTRS = {
     "api_id": "api_id", "api_hash": "api_hash", "owner_username": "owner_username",
     "source_bot": "source_bot", "filestore_bot": "filestore_bot", "catalog_bot": "catalog_bot",
     "arolinks_api_key": "arolinks_key", "arolinks_url": "arolinks_url",
-    "tutorial_link": "tutorial_link", "channel_name": "channel_name", "channel_description": "channel_description", "caption": "caption", "desired_qualities": "qualities",
+    "tutorial_link": "tutorial_link", "channel_name": "channel_name",
+    "channel_description": "channel_description", "caption": "caption",
+    "desired_qualities": "qualities", "language_filter": "language_filter", "source_timeout": "source_timeout",
+    "flow_timeout": "flow_timeout", "max_search_pages": "max_search_pages",
+    "default_genre": "default_genre", "catalog_language": "catalog_language",
     "delay_between_actions": "delay_actions", "delay_between_movies": "delay_movies",
     "max_channels_per_day": "max_channels",
 }
@@ -28,39 +37,105 @@ class ControlHandlers:
             return await fn(update, context)
         return wrapped
 
-    async def _values(self):
-        keys = ["limits_enabled", "delay_between_actions", "delay_between_movies", "max_channels_per_day", "auto_catalog"]
-        return {key: await self.db.setting(key) for key in keys}
+    async def _value(self, key: str) -> str:
+        defaults = {
+            "api_id": str(self.cfg.api_id or ""), "api_hash": self.cfg.api_hash,
+            "owner_username": self.cfg.owner_username, "source_bot": self.cfg.source_bot,
+            "filestore_bot": self.cfg.filestore_bot, "catalog_bot": self.cfg.catalog_bot,
+            "arolinks_api_key": self.cfg.arolinks_key, "arolinks_url": self.cfg.arolinks_url,
+            "tutorial_link": self.cfg.tutorial_link, "channel_name": self.cfg.channel_name,
+            "channel_description": self.cfg.channel_description, "caption": self.cfg.caption,
+            "desired_qualities": self.cfg.qualities, "language_filter": getattr(self.cfg, "language_filter", "Hindi"),
+            "max_search_pages": str(getattr(self.cfg, "max_search_pages", 32)),
+            "source_timeout": str(self.cfg.source_timeout), "flow_timeout": str(self.cfg.flow_timeout),
+            "default_genre": getattr(self.cfg, "default_genre", "Action"),
+            "catalog_language": getattr(self.cfg, "catalog_language", "Hindi"),
+            "delay_between_actions": str(self.cfg.delay_actions), "delay_between_movies": str(self.cfg.delay_movies),
+            "max_channels_per_day": str(self.cfg.max_channels),
+            "limits_enabled": str(self.cfg.limits_enabled).lower(), "auto_catalog": str(self.cfg.auto_catalog).lower(),
+        }
+        return await self.db.setting(key, defaults.get(key, ""))
+
+    async def _values(self) -> dict[str, str]:
+        keys = list(SETTING_DEFS) + ["limits_enabled", "auto_catalog", "userbot_phone"]
+        return {key: await self._value(key) for key in keys}
+
+    async def _edit(self, query, text: str, reply_markup) -> None:
+        try:
+            await query.edit_message_text(text, reply_markup=reply_markup, disable_web_page_preview=True)
+        except BadRequest as exc:
+            if "message is not modified" not in str(exc).lower():
+                raise
+
+    def _clear_input(self, context) -> None:
+        for key in ("input_mode", "setting_key"):
+            context.user_data.pop(key, None)
+
+    async def _home(self, query) -> None:
+        await self._edit(query, "🎬 CineForge Admin Panel\n\nChoose an option below. All controls are restricted to the configured owner account.", home_keyboard(self.runtime.running))
+
+    async def _settings_root(self, query=None, message=None) -> None:
+        values = await self._values()
+        summary = (
+            "⚙️ Settings Overview\n\n"
+            f"👤 API credentials: {'Configured' if values['api_id'] and values['api_hash'] else 'Incomplete'}\n"
+            f"🔐 Userbot session: {'Connected' if self.runtime.running else 'Login required'}\n"
+            f"🤖 Bots: @{values['source_bot']} → @{values['filestore_bot']} → @{values['catalog_bot']}\n"
+            f"🎞 Qualities: {values['desired_qualities']}\n"
+            f"🌐 Source language: {values['language_filter']}\n"
+            f"🛡 Limits: {values['limits_enabled'].upper()} | Daily max: {values['max_channels_per_day']}\n"
+            f"🗂 Auto catalog: {values['auto_catalog'].upper()}\n\n"
+            "Select a category to view every current value and its explanation."
+        )
+        markup = settings_root_keyboard(values)
+        if query: await self._edit(query, summary, markup)
+        else: await message.reply_text(summary, reply_markup=markup, disable_web_page_preview=True)
+
+    async def _category(self, query, category: str) -> None:
+        values = await self._values(); title, description = CATEGORIES[category]
+        lines = [f"{title}", description, ""]
+        if category == "account":
+            phone = values.get("userbot_phone", "")
+            masked = ("••••" + phone[-4:]) if phone else "Not saved"
+            lines += [f"Session: {'Connected' if self.runtime.running else 'Not connected'}", f"Phone: {masked}", ""]
+        for key, definition in SETTING_DEFS.items():
+            if definition["category"] == category:
+                lines.append(f"• {definition['title']}: {display_value(key, values.get(key, ''))}")
+        await self._edit(query, "\n".join(lines), category_keyboard(category, values, self.runtime.running))
+
+    async def _field(self, query, key: str) -> None:
+        definition = SETTING_DEFS[key]; value = await self._value(key)
+        text = (
+            f"⚙️ {definition['title']}\n\n"
+            f"Current value: {display_value(key, value)}\n\n"
+            f"ℹ️ {definition['help']}"
+        )
+        await self._edit(query, text, field_keyboard(key))
 
     async def start(self, update, context):
         context.user_data.clear()
         await update.message.reply_text(
-            "🎬 CineForge Admin\n\nUse Login Userbot for first-time Telegram authorization. "
-            "API ID and API hash can be entered under Settings → Telegram API.",
+            "🎬 CineForge Admin Panel\n\nUse the buttons below to log in, configure the complete pipeline, and monitor jobs.",
             reply_markup=home_keyboard(self.runtime.running),
         )
 
     async def add(self, update, context):
         name = " ".join(context.args).strip()
-        if not name:
-            return await update.message.reply_text("Usage: /add <movie name>")
+        if not name: return await update.message.reply_text("Usage: /add <movie name>")
         qid = await self.db.add_movie(name, self.owner_id)
         await update.message.reply_text(f"✅ Queued #{qid}: {name}")
 
     async def batch(self, update, context):
         context.user_data["input_mode"] = "batch"
-        await update.message.reply_text("Send movie titles, one per line.")
+        await update.message.reply_text("Send movie titles, one per line.", reply_markup=back_home_keyboard())
 
     async def text(self, update, context):
-        mode = context.user_data.get("input_mode")
-        text = update.message.text.strip()
+        mode = context.user_data.get("input_mode"); text = update.message.text.strip()
         if mode == "phone":
             try:
-                await self.login.send_code(self.owner_id, text)
-                context.user_data["input_mode"] = "otp"
-                await update.message.reply_text("📨 Telegram sent a login code. Send it here. Spaces are allowed.\n\nUse /cancel_login to abort.")
-            except Exception as exc:
-                await update.message.reply_text(f"❌ Could not send code: {exc}")
+                await self.login.send_code(self.owner_id, text); context.user_data["input_mode"] = "otp"
+                await update.message.reply_text("📨 Telegram sent a login code. Send it here; spaces are allowed.\n\nThe OTP message will be deleted immediately.", reply_markup=back_home_keyboard())
+            except Exception as exc: await update.message.reply_text(f"❌ Could not send code: {exc}", reply_markup=back_home_keyboard())
             return
         if mode == "otp":
             try:
@@ -69,104 +144,137 @@ class ControlHandlers:
                 result = await self.login.submit_code(self.owner_id, text)
                 if result == "password":
                     context.user_data["input_mode"] = "password"
-                    await update.effective_chat.send_message("🔑 Two-step verification is enabled. Send your password. The message will be deleted immediately.")
+                    await update.effective_chat.send_message("🔑 Send your two-step-verification password. It will be deleted immediately.", reply_markup=back_home_keyboard())
                 else:
-                    context.user_data.clear()
-                    await update.effective_chat.send_message("✅ Login complete. Session saved and userbot engine started.", reply_markup=home_keyboard(True))
-            except Exception as exc:
-                await update.effective_chat.send_message(f"❌ Login failed: {exc}")
+                    context.user_data.clear(); await update.effective_chat.send_message("✅ Login complete. Session saved and engine started.", reply_markup=home_keyboard(True))
+            except Exception as exc: await update.effective_chat.send_message(f"❌ Login failed: {exc}", reply_markup=back_home_keyboard())
             return
         if mode == "password":
             try:
                 try: await update.message.delete()
                 except Exception: pass
-                await self.login.submit_password(self.owner_id, text)
-                context.user_data.clear()
-                await update.effective_chat.send_message("✅ Login complete. Session saved and userbot engine started.", reply_markup=home_keyboard(True))
-            except Exception as exc:
-                await update.effective_chat.send_message(f"❌ Login failed: {exc}")
+                await self.login.submit_password(self.owner_id, text); context.user_data.clear()
+                await update.effective_chat.send_message("✅ Login complete. Session saved and engine started.", reply_markup=home_keyboard(True))
+            except Exception as exc: await update.effective_chat.send_message(f"❌ Login failed: {exc}", reply_markup=back_home_keyboard())
             return
         if mode == "setting":
-            key = context.user_data.pop("setting_key")
-            context.user_data.pop("input_mode", None)
+            key = context.user_data.get("setting_key")
             try:
                 value = self._validate_setting(key, text)
-                await self.db.set_setting(key, value)
-                attr = CFG_ATTRS.get(key)
-                if attr:
-                    converted = int(value) if key in {"api_id", "max_channels_per_day"} else float(value) if key in {"delay_between_actions", "delay_between_movies"} else value
-                    setattr(self.cfg, attr, converted)
-                await update.message.reply_text(f"✅ {EDITABLE_SETTINGS[key]} saved.")
+                if SETTING_DEFS[key].get("secret"):
+                    try: await update.message.delete()
+                    except Exception: pass
+                await self._save_setting(key, value)
+                self._clear_input(context)
+                await update.effective_chat.send_message(f"✅ {SETTING_DEFS[key]['title']} saved.\nNew value: {display_value(key, value)}", reply_markup=field_keyboard(key))
             except Exception as exc:
-                await update.message.reply_text(f"❌ {exc}")
+                await update.effective_chat.send_message(f"❌ {exc}\n\nPlease try again or press Cancel.", reply_markup=input_cancel_keyboard(key))
             return
         names = [line.strip() for line in text.splitlines() if line.strip()] if mode == "batch" else [text]
-        context.user_data.clear()
-        ids = [await self.db.add_movie(name, self.owner_id) for name in names]
-        await update.message.reply_text(f"✅ Queued {len(ids)} title(s): " + ", ".join(map(str, ids)))
+        context.user_data.clear(); ids = [await self.db.add_movie(name, self.owner_id) for name in names]
+        await update.message.reply_text(f"✅ Queued {len(ids)} title(s): " + ", ".join(map(str, ids)), reply_markup=home_keyboard(self.runtime.running))
 
-    @staticmethod
-    def _validate_setting(key: str, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError("Value cannot be empty.")
-        if key in {"api_id", "max_channels_per_day"}:
-            value = str(max(0, int(value)))
-        elif key in {"delay_between_actions", "delay_between_movies"}:
-            value = str(max(0.0, float(value)))
-        elif key in {"owner_username", "source_bot", "filestore_bot", "catalog_bot"}:
-            value = value.lstrip("@")
-        elif key in {"arolinks_url", "tutorial_link"} and not value.startswith(("http://", "https://")):
-            raise ValueError("Enter a complete http:// or https:// URL.")
+    def _validate_setting(self, key: str, value: str) -> str:
+        definition = SETTING_DEFS[key]; kind = definition["kind"]; value = value.strip()
+        if not value: raise ValueError("Value cannot be empty.")
+        if kind in {"int", "int_positive"}:
+            number = int(value)
+            if kind == "int_positive" and number < 1: raise ValueError("Enter a whole number greater than zero.")
+            if kind == "int" and number < 0: raise ValueError("Enter zero or a positive whole number.")
+            if key == "api_id" and number <= 0: raise ValueError("API ID must be greater than zero.")
+            if key == "max_search_pages" and number > 100: raise ValueError("Maximum search pages cannot exceed 100.")
+            if key in {"source_timeout", "flow_timeout"} and not 5 <= number <= 600: raise ValueError("Timeout must be between 5 and 600 seconds.")
+            value = str(number)
+        elif kind == "float":
+            number = float(value)
+            if not 0 <= number <= 86400: raise ValueError("Delay must be between 0 and 86400 seconds.")
+            value = str(number)
+        elif kind == "username": value = value.lstrip("@")
+        elif kind in {"url", "url_optional"} and not value.startswith(("http://", "https://")): raise ValueError("Enter a complete http:// or https:// URL.")
+        elif kind == "qualities":
+            allowed = {"480p", "720p", "1080p", "2160p", "4k"}
+            parts = [part.strip().lower() for part in value.split(",") if part.strip()]
+            if not parts or any(part not in allowed for part in parts): raise ValueError("Use comma-separated values from 480p, 720p, 1080p, 2160p, 4K.")
+            value = ",".join("4K" if part == "4k" else part for part in parts)
+        elif kind == "template":
+            if key == "channel_name" and "{movie}" not in value: raise ValueError("Channel-name format must include {movie}.")
+            if key == "caption" and ("{movie}" not in value or "{quality}" not in value): raise ValueError("Caption must include {movie} and {quality}.")
         return value
+
+    async def _save_setting(self, key: str, value: str) -> None:
+        await self.db.set_setting(key, value)
+        attr = CFG_ATTRS.get(key)
+        if attr:
+            converter = int if key in {"api_id", "max_channels_per_day", "source_timeout", "flow_timeout", "max_search_pages"} else float if key in {"delay_between_actions", "delay_between_movies"} else str
+            setattr(self.cfg, attr, converter(value))
 
     async def status_text(self) -> str:
         rows = await self.db.queue_list(); today = await self.db.count_today(); paused = await self.db.setting("pipeline_paused", "false")
-        lines = [f'📊 STATUS — {"PAUSED" if paused == "true" else "RUNNING"}', f'Userbot: {"CONNECTED" if self.runtime.running else "LOGIN REQUIRED"}', f"Today: {today}", f"Queue: {len(rows)}"]
-        lines += [f"#{r['id']} {r['movie_name']} — stage {r['current_stage']}/10 ({r['status']})" for r in rows[:15]]
+        lines = [f'📊 Live Status', f'Pipeline: {"PAUSED" if paused == "true" else "RUNNING"}', f'Userbot: {"CONNECTED" if self.runtime.running else "LOGIN REQUIRED"}', f"Channels today: {today}", f"Active queue: {len(rows)}", ""]
+        lines += [f"• #{r['id']} {r['movie_name']} — stage {r['current_stage']}/10 ({r['status']})" for r in rows[:15]]
         return "\n".join(lines)
 
-    async def status(self, update, context): await update.message.reply_text(await self.status_text())
-    async def settings(self, update, context): await update.message.reply_text("⚙️ Runtime settings", reply_markup=settings_keyboard(await self._values()))
+    async def status(self, update, context): await update.message.reply_text(await self.status_text(), reply_markup=back_home_keyboard())
+    async def settings(self, update, context): await self._settings_root(message=update.message)
     async def toggle_limits(self, update, context):
         old = await self.db.setting("limits_enabled", "false"); new = "false" if old == "true" else "true"
-        await self.db.set_setting("limits_enabled", new); await update.message.reply_text(f"Limits: {new.upper()}")
+        await self.db.set_setting("limits_enabled", new); self.cfg.limits_enabled = new == "true"
+        await update.message.reply_text(f"Limits: {new.upper()}", reply_markup=back_home_keyboard())
 
     async def callback(self, update, context):
         query = update.callback_query; await query.answer(); data = query.data
+        if data.startswith("nav:"):
+            self._clear_input(context)
+            if data == "nav:home":
+                await self.login.abort(self.owner_id); return await self._home(query)
+            if data == "nav:settings": return await self._settings_root(query=query)
+            if data.startswith("nav:cat:"): return await self._category(query, data.split(":", 2)[2])
+            if data == "nav:status": return await self._edit(query, await self.status_text(), back_home_keyboard())
+            if data == "nav:logs":
+                rows = await self.db.recent_logs(15); text = "📝 Recent Logs\n\n" + ("\n".join(f"[{r['level']}] #{r['queue_id'] or '-'} {r['message']}" for r in rows) or "No logs yet.")
+                return await self._edit(query, text[:3900], back_home_keyboard())
+            if data == "nav:help":
+                return await self._edit(query, "❓ Help\n\n1. Configure Telegram API credentials.\n2. Press Login Userbot and complete OTP/2FA.\n3. Review integration usernames and links.\n4. Add titles with /add or plain text.\n5. Monitor progress from Live Status.\n\nEvery submenu shows its current saved values.", back_home_keyboard())
         if data == "auth:start":
             if not await self.login.credentials_ready():
-                return await query.message.reply_text("Set Telegram API ID and API hash in Settings first.")
+                return await self._edit(query, "⚠️ Telegram API ID and API Hash are required first.", back_home_keyboard())
             context.user_data["input_mode"] = "phone"
-            return await query.message.reply_text("Send the Telegram account phone number with country code, for example +919876543210.")
-        if data == "auth:status": return await query.message.reply_text("✅ Userbot engine is connected.")
-        if data == "menu:home": return await query.edit_message_text("🎬 CineForge Admin", reply_markup=home_keyboard(self.runtime.running))
-        if data == "menu:settings": return await query.edit_message_text("⚙️ Runtime settings", reply_markup=settings_keyboard(await self._values()))
-        if data == "menu:status": return await query.message.reply_text(await self.status_text())
-        if data.startswith("submenu:"):
-            kind = data.split(":", 1)[1]
-            return await query.edit_message_text(f"⚙️ {kind.title()} settings", reply_markup=submenu_keyboard(kind))
-        _, action, key = data.split(":", 2)
-        if action == "toggle":
-            old = await self.db.setting(key, "false"); await self.db.set_setting(key, "false" if old == "true" else "true")
-            await query.edit_message_reply_markup(settings_keyboard(await self._values()))
-        else:
-            context.user_data["input_mode"] = "setting"; context.user_data["setting_key"] = key
-            secret = " (the reply is owner-only, but delete it afterward if sensitive)" if key in {"api_hash", "arolinks_api_key"} else ""
-            await query.message.reply_text(f"Send the new value for {EDITABLE_SETTINGS[key]}{secret}.")
+            return await self._edit(query, "🔐 Userbot Login\n\nSend the Telegram phone number with country code, for example +919876543210.", back_home_keyboard())
+        if data == "auth:status": return await self._edit(query, "✅ Userbot Connected\n\nThe MTProto engine and queue worker are running.", back_home_keyboard())
+        if data == "auth:logout_ask": return await self._edit(query, "⚠️ Log out userbot?\n\nThis stops the pipeline and removes the saved local session. Pending queue records are preserved.", confirmation_keyboard("auth:logout_do", "nav:cat:account"))
+        if data == "auth:logout_do":
+            await self.runtime.stop(); await self.db.delete_setting("userbot_session_string"); self.cfg.session_string = ""
+            return await self._edit(query, "✅ Userbot logged out and the saved session was removed.", back_home_keyboard())
+        if data.startswith("cfg:"):
+            parts = data.split(":"); action = parts[1]; key = parts[2]
+            if action == "toggle":
+                old = await self._value(key); new = "false" if old == "true" else "true"; await self.db.set_setting(key, new)
+                if key == "limits_enabled": self.cfg.limits_enabled = new == "true"
+                if key == "auto_catalog": self.cfg.auto_catalog = new == "true"
+                return await self._settings_root(query=query)
+            if action == "open": return await self._field(query, key)
+            if action == "edit":
+                context.user_data["input_mode"] = "setting"; context.user_data["setting_key"] = key
+                definition = SETTING_DEFS[key]
+                return await self._edit(query, f"✏️ Change {definition['title']}\n\n{definition['help']}\n\nSend the new value now.", input_cancel_keyboard(key))
+            if action == "clear":
+                await self.db.set_setting(key, ""); attr = CFG_ATTRS.get(key)
+                if attr: setattr(self.cfg, attr, "")
+                return await self._field(query, key)
+            if action == "choose":
+                value = ":".join(parts[3:]); await self._save_setting(key, value); return await self._field(query, key)
 
     async def cancel_login(self, update, context):
-        await self.login.abort(self.owner_id); context.user_data.clear(); await update.message.reply_text("Login cancelled.")
+        await self.login.abort(self.owner_id); context.user_data.clear(); await update.message.reply_text("Login cancelled.", reply_markup=home_keyboard(self.runtime.running))
     async def logs(self, update, context):
         try: count = min(50, max(1, int(context.args[0]))) if context.args else 20
         except ValueError: count = 20
-        rows = await self.db.recent_logs(count)
-        await update.message.reply_text("\n".join(f"[{r['level']}] #{r['queue_id'] or '-'} {r['message']}" for r in rows) or "No logs.")
-    async def pause(self, update, context): await self.db.set_setting("pipeline_paused", "true"); await update.message.reply_text("⏸ Pipeline paused.")
-    async def resume(self, update, context): await self.db.set_setting("pipeline_paused", "false"); await update.message.reply_text("▶️ Pipeline resumed.")
+        rows = await self.db.recent_logs(count); await update.message.reply_text(("\n".join(f"[{r['level']}] #{r['queue_id'] or '-'} {r['message']}" for r in rows) or "No logs.")[:3900], reply_markup=back_home_keyboard())
+    async def pause(self, update, context): await self.db.set_setting("pipeline_paused", "true"); await update.message.reply_text("⏸ Pipeline paused.", reply_markup=back_home_keyboard())
+    async def resume(self, update, context): await self.db.set_setting("pipeline_paused", "false"); await update.message.reply_text("▶️ Pipeline resumed.", reply_markup=back_home_keyboard())
     async def cancel(self, update, context):
-        if not context.args: return await update.message.reply_text("Usage: /cancel <queue_id>")
-        await self.db.db.execute("UPDATE queue SET status='cancelled',updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='pending'", (int(context.args[0]),)); await update.message.reply_text("Cancelled if still pending.")
+        if not context.args: return await update.message.reply_text("Usage: /cancel <queue_id>", reply_markup=back_home_keyboard())
+        await self.db.db.execute("UPDATE queue SET status='cancelled',updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='pending'", (int(context.args[0]),)); await update.message.reply_text("Cancelled if still pending.", reply_markup=back_home_keyboard())
     async def retry(self, update, context):
-        if not context.args: return await update.message.reply_text("Usage: /retry <queue_id>")
-        await self.db.db.execute("UPDATE queue SET status='pending',error_message=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='failed'", (int(context.args[0]),)); await update.message.reply_text("Requeued if failed.")
+        if not context.args: return await update.message.reply_text("Usage: /retry <queue_id>", reply_markup=back_home_keyboard())
+        await self.db.db.execute("UPDATE queue SET status='pending',error_message=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='failed'", (int(context.args[0]),)); await update.message.reply_text("Requeued if failed.", reply_markup=back_home_keyboard())

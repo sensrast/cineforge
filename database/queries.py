@@ -22,6 +22,7 @@ class Queries:
  async def setting(self,key:str,default:str='')->str:
   r=await self.db.fetchone("SELECT value FROM settings WHERE key=?",(key,)); return r['value'] if r else default
  async def set_setting(self,key:str,value:str): await self.db.execute("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=CURRENT_TIMESTAMP",(key,value))
+ async def delete_setting(self,key:str): await self.db.execute("DELETE FROM settings WHERE key=?",(key,))
  async def log(self,msg:str,level:str='INFO',qid:int|None=None): await self.db.execute("INSERT INTO logs(queue_id,level,message) VALUES(?,?,?)",(qid,level,msg[:2000]))
  async def recent_logs(self,n:int=20): return await self.db.fetchall("SELECT * FROM logs ORDER BY id DESC LIMIT ?",(n,))
  async def count_today(self)->int:

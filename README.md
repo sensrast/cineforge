@@ -29,7 +29,7 @@ Never commit `.env` or a session string. If a token has been pasted into a chat,
 
 Only `CONTROL_BOT_TOKEN` and `OWNER_USER_ID` are bootstrap environment variables. Open the control bot and press **Login Userbot**. The owner-only flow requests the phone number, Telegram OTP, and—when enabled—the two-step-verification password. OTP/password messages are deleted immediately, Pyrogram exports an in-memory string session, and that session is saved in the settings database. The MTProto worker then starts without a manual application restart.
 
-Use `/settings` to configure Telegram API credentials, integration usernames, AroLinks, links, templates, qualities, limits, and delays. Because the session is security-sensitive, protect the database and use persistent storage. Render's free ephemeral filesystem can lose the database after a redeploy; use a persistent disk/paid plan for production.
+Use `/settings` to open a categorized, value-aware admin panel. It displays saved values (masking secrets), contextual help, refresh controls, validated input, and Back/Cancel navigation on every submenu. Categories cover account/login, Telegram integrations, content filters, channel templates, links, speed/limits/timeouts, and catalog defaults. Because the session is security-sensitive, protect the database and use persistent storage. Render's free ephemeral filesystem can lose the database after a redeploy; use a persistent disk/paid plan for production.
 
 ## Control commands
 
