@@ -17,7 +17,7 @@ def _float(name: str, default: float) -> float:
     try: return float(os.getenv(name, str(default)))
     except ValueError: return default
 
-@dataclass(frozen=True)
+@dataclass
 class Config:
     api_id: int = _int("API_ID", 0)
     api_hash: str = os.getenv("API_HASH", "")
