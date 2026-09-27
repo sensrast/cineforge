@@ -11,11 +11,13 @@ from utils.notifications import notify_control_bot
 log = logging.getLogger(__name__)
 
 OWNER_PRIVILEGES = ChatPrivileges(
+    can_manage_chat=True,
     can_change_info=True, can_post_messages=True, can_edit_messages=True,
     can_delete_messages=True, can_invite_users=True, can_restrict_members=True,
     can_pin_messages=True, can_promote_members=True, can_manage_video_chats=True,
 )
 FILESTORE_PRIVILEGES = ChatPrivileges(
+    can_manage_chat=True,
     can_post_messages=True, can_edit_messages=True, can_delete_messages=True,
     can_invite_users=True,
 )
