@@ -10,5 +10,5 @@ async def run(ctx:PipelineContext,qid:int,messages:list[dict])->list[dict]:
  if not files:raise RuntimeError(f"No exact-title {row['content_type']} files in desired qualities")
  if row['content_type']=='movie':
   available={item['quality'] for item in files};missing=mandatory-available
-  if missing:raise RuntimeError('Mandatory qualities unavailable: '+', '.join(sorted(missing)))
+  if missing:await ctx.db.log('Search exhausted; continuing without unavailable qualities: '+', '.join(sorted(missing)),'WARNING',qid)
  await ctx.db.patch_state(qid,filtered_files_json=files);return files

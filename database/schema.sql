@@ -1,7 +1,7 @@
 PRAGMA foreign_keys=ON;
 CREATE TABLE IF NOT EXISTS queue (
  id INTEGER PRIMARY KEY AUTOINCREMENT, movie_name TEXT NOT NULL, search_query TEXT NOT NULL,
- content_type TEXT NOT NULL DEFAULT 'movie',
+ content_type TEXT NOT NULL DEFAULT 'movie', force_rebuild INTEGER NOT NULL DEFAULT 0,
  status TEXT NOT NULL DEFAULT 'pending', current_stage INTEGER NOT NULL DEFAULT 0,
  error_message TEXT, retry_count INTEGER NOT NULL DEFAULT 0, requested_by INTEGER,
  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

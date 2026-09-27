@@ -45,7 +45,7 @@ class Orchestrator:
         resume_at = max(1, int(row.get("current_stage") or 1))
         stage = resume_at
         try:
-            if resume_at <= 1:
+            if resume_at <= 1 and not bool(row.get("force_rebuild", 0)):
                 existing = await self.ctx.db.find_channel_by_movie(movie, content_type)
                 if not existing and content_type == "movie":
                     # Recover movie channels created before durable registry support by

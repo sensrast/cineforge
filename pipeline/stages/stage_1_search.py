@@ -4,11 +4,11 @@ import logging
 from datetime import datetime, timezone
 from pipeline.context import PipelineContext
 from pipeline.stages.common import latest_id, buttons, newest_after
-from utils.text_parser import parse_results, normalize_quality
+from utils.text_parser import parse_results, normalize_quality, explicit_non_hindi, media_label
 
 log = logging.getLogger(__name__)
 
-async def _fetch_page_items(ctx: PipelineContext, qid: int, current, items: list[dict], fetched: list[dict], seen: set[tuple]) -> None:
+async def _fetch_page_items(ctx: PipelineContext, qid: int, current, items: list[dict], fetched: list[dict], seen: set[tuple], strict_hindi: bool) -> None:
     """Fetch matching qualities while their edited-page buttons still exist."""
     chat = ctx.cfg.source_bot
     for item in items:
@@ -30,9 +30,14 @@ async def _fetch_page_items(ctx: PipelineContext, qid: int, current, items: list
         before = await latest_id(ctx.client, chat)
         await ctx.speed.call(lambda m=current, p=position: m.click(*p), qid)
         media = await newest_after(ctx.client, chat, before, max(60, ctx.cfg.flow_timeout), lambda m: bool(m.video or m.document))
+        delivered_label=media_label(media)
+        if strict_hindi and explicit_non_hindi(delivered_label):
+            await ctx.db.log(f"Rejected delivered non-Hindi file for {item['quality']}: {delivered_label[:180]}","WARNING",qid)
+            continue
         fetched.append({
             "quality": item["quality"], "season": item.get("season"), "episode": item.get("episode"),
             "source_message_id": media.id, "received_at": datetime.now(timezone.utc).isoformat(),
+            "source_name": delivered_label or item.get("source_name", ""),
         })
         seen.add(key)
         await ctx.speed.delay()
@@ -68,7 +73,7 @@ async def run(ctx: PipelineContext, qid: int, movie: str, content_type: str = "m
         if any(item.get("is_series") for item in page_matches):
             series_mode = True
         if page_matches:
-            await _fetch_page_items(ctx, qid, current, page_matches, prefetched, fetched_keys)
+            await _fetch_page_items(ctx, qid, current, page_matches, prefetched, fetched_keys, strict_hindi=(language != "any"))
         matches = parse_results(pages, desired, allow_non_hindi=(language == "any"), title_query=movie, content_type=content_type)
         found = {item["quality"] for item in matches}
         progress = (
@@ -99,7 +104,21 @@ async def run(ctx: PipelineContext, qid: int, movie: str, content_type: str = "m
             break
         old_text = text
         await ctx.speed.delay()
-        await ctx.speed.call(lambda m=current, p=next_pos: m.click(*p), qid)
+        pagination_clicked=False
+        for attempt in range(3):
+            try:
+                current=await ctx.client.get_messages(chat,current.id)
+                await ctx.speed.call(lambda m=current, p=next_pos: m.click(*p), qid)
+                pagination_clicked=True
+                break
+            except Exception as exc:
+                if "timed out" not in str(exc).lower() and "timeout" not in exc.__class__.__name__.lower():
+                    raise
+                await ctx.db.log(f"Movie Hunt Next timed out; retry {attempt+1}/3","WARNING",qid)
+                await asyncio.sleep(1+attempt)
+        if not pagination_clicked:
+            await ctx.db.log("Movie Hunt pagination remained unavailable; continuing with valid qualities already fetched","WARNING",qid)
+            break
         changed = None
         for _poll in range(ctx.cfg.source_timeout * 2):
             # Movie Hunt normally edits the same result message, but some
@@ -121,6 +140,10 @@ async def run(ctx: PipelineContext, qid: int, movie: str, content_type: str = "m
             break
         current = changed
     updates = {"source_messages_json": pages}
+    if content_type == "movie" and prefetched:
+        missing=mandatory-{item["quality"] for item in prefetched if item.get("episode") is None}
+        if missing:
+            await ctx.db.log("All listed pages checked; continuing without unavailable Hindi qualities: "+", ".join(sorted(missing)),"WARNING",qid)
     if prefetched:
         updates["fetched_files_json"] = sorted(prefetched, key=lambda item: (
             item.get("season") or 0, item.get("episode") or 0,

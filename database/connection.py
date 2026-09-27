@@ -20,6 +20,8 @@ class Database:
             columns={row[1] for row in await (await self.conn.execute(f"PRAGMA table_info({table})")).fetchall()}
             if "content_type" not in columns:
                 await self.conn.execute(f"ALTER TABLE {table} ADD COLUMN content_type TEXT NOT NULL DEFAULT 'movie'")
+            if table == "queue" and "force_rebuild" not in columns:
+                await self.conn.execute("ALTER TABLE queue ADD COLUMN force_rebuild INTEGER NOT NULL DEFAULT 0")
         state_columns={row[1] for row in await (await self.conn.execute("PRAGMA table_info(pipeline_state)")).fetchall()}
         if "backup_done" not in state_columns:
             await self.conn.execute("ALTER TABLE pipeline_state ADD COLUMN backup_done INTEGER DEFAULT 0")

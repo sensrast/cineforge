@@ -7,12 +7,23 @@ from typing import Any
 QUALITY_RE = re.compile(r"(?i)(480\s*p|720\s*p|1080\s*p|2160\s*p|ds4k|4k)")
 SIZE_RE = re.compile(r"(?i)(\d+(?:\.\d+)?)\s*(KB|MB|GB|TB)")
 LANG_RE = re.compile(r"(?i)\bhindi\b|हिंदी")
-OTHER_LANG_RE = re.compile(r"(?i)\b(kannada|tamil|telugu|malayalam|bengali|bangla|marathi|gujarati|punjabi|odia|oriya|urdu|english)\b")
+OTHER_LANG_RE = re.compile(r"(?i)\b(kan(?:nada)?|tam(?:il)?|tel(?:ugu)?|mal(?:ayalam)?|bengali|bangla|marathi|gujarati|punjabi|odia|oriya|urdu|english)\b")
 BATCH_RE = re.compile(r"https?://t\.me/[A-Za-z0-9_]+\?start=[A-Za-z0-9_-]+")
 
 def normalize_quality(q: str) -> str:
     q = re.sub(r"\s+", "", q.lower())
     return {"4k": "2160p", "ds4k": "2160p"}.get(q, q)
+
+def explicit_non_hindi(text: str) -> bool:
+    """True when a filename/caption names another language without Hindi."""
+    text=text or ""
+    return bool(OTHER_LANG_RE.search(text)) and not bool(LANG_RE.search(text))
+
+def media_label(message: Any) -> str:
+    """Combine the delivered media filename and caption for validation."""
+    media=getattr(message,"document",None) or getattr(message,"video",None)
+    filename=getattr(media,"file_name","") if media else ""
+    return f"{filename or ''} {getattr(message,'caption','') or ''}".strip()
 
 def normalize_title(text: str) -> str:
     """Normalize a requested or source title for exact-title comparisons."""
@@ -78,7 +89,7 @@ def parse_results(messages: list[dict[str, Any]], desired: set[str], allow_non_h
         for block in blocks:
             if not allow_non_hindi:
                 block_is_hindi = bool(LANG_RE.search(block))
-                block_is_other = bool(OTHER_LANG_RE.search(block))
+                block_is_other = explicit_non_hindi(block)
                 # Explicit per-file language always wins over the page heading.
                 # Thus a Kannada 480p entry is rejected even when another item
                 # makes the overall page contain the word Hindi.

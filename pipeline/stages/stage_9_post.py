@@ -39,11 +39,13 @@ async def _delete_temporary_messages(ctx:PipelineContext,qid:int,channel_id:int,
 async def run(ctx:PipelineContext,qid:int,movie:str,channel_id:int,copied_files:list[dict],link:str)->int:
     order={"480p":0,"720p":1,"1080p":2,"2160p":3}
     qualities=sorted({item["quality"] for item in copied_files},key=lambda q:order.get(q,99))
-    episodes={(item.get("season"),item.get("episode")) for item in copied_files if item.get("episode") is not None}
-    text=(f"🎬 {movie}\n\n🔊 Audio: Hindi\n⚡ Available Qualities: {' | '.join(qualities)}\n"
-          +(f"📺 Episodes: {len(episodes)}\n" if episodes else "")
-          +f"📅 Added: {datetime.now().strftime('%d %B %Y')}\n\n👇 Tap the button below to download 👇")
-    if ctx.cfg.owner_username:text+=f"\n\n📢 Powered by @{ctx.cfg.owner_username.lstrip('@')}"
+    owner="@"+ctx.cfg.owner_username.lstrip("@") if ctx.cfg.owner_username else ""
+    text=("╔━━━━━━━━━━━━━━━━━━━━━╗\n\n"
+          f"⌲ {movie} ❍\n\n"
+          f"◎ 𝗤𝘂𝗮𝗹𝗶𝘁𝘆: {' | '.join(qualities)}\n\n"
+          "〄 𝗔𝘂𝗱𝗶𝗼: Hindi\n\n"
+          f"♡ 𝗣𝗼𝘄𝗲𝗿𝗲𝗱 𝗯𝘆: {owner}\n\n"
+          "╚━━━━━━━━━━━━━━━━━━━━━╝")
 
     start_sticker=await ctx.db.setting("sticker_start","")
     end_sticker=await ctx.db.setting("sticker_end","")

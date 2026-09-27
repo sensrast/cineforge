@@ -7,8 +7,8 @@ from utils.text_parser import normalize_title
 
 class Queries:
  def __init__(self, db: Database): self.db=db
- async def add_movie(self,name:str,owner:int,content_type:str='movie')->int:
-  q=name.strip(); kind='series' if content_type=='series' else 'movie'; qid=await self.db.execute("INSERT INTO queue(movie_name,search_query,content_type,requested_by) VALUES(?,?,?,?)",(q,q,kind,owner)); await self.db.execute("INSERT INTO pipeline_state(queue_id) VALUES(?)",(qid,)); return qid
+ async def add_movie(self,name:str,owner:int,content_type:str='movie',force_rebuild:bool=False)->int:
+  q=name.strip(); kind='series' if content_type=='series' else 'movie'; qid=await self.db.execute("INSERT INTO queue(movie_name,search_query,content_type,force_rebuild,requested_by) VALUES(?,?,?,?,?)",(q,q,kind,int(force_rebuild),owner)); await self.db.execute("INSERT INTO pipeline_state(queue_id) VALUES(?)",(qid,)); return qid
  async def next_pending(self): return await self.db.fetchone("SELECT * FROM queue WHERE status='pending' ORDER BY created_at,id LIMIT 1")
  async def queue_list(self,limit:int=20): return await self.db.fetchall("SELECT * FROM queue WHERE status NOT IN ('completed','cancelled') ORDER BY created_at LIMIT ?",(limit,))
  async def set_stage(self,qid:int,stage:int,status:str): await self.db.execute("UPDATE queue SET current_stage=?,status=?,updated_at=CURRENT_TIMESTAMP,error_message=NULL WHERE id=?",(stage,status,qid))

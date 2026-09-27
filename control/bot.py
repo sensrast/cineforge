@@ -6,7 +6,7 @@ def build_control_bot(token: str, db, owner_id: int, cfg, runtime, login) -> App
     handlers = ControlHandlers(db, owner_id, cfg, runtime, login)
     own = handlers.owner
     commands = [
-        ("start", handlers.start), ("add", handlers.add), ("movie", handlers.movie), ("series", handlers.series), ("batch", handlers.batch),
+        ("start", handlers.start), ("add", handlers.add), ("movie", handlers.movie), ("series", handlers.series), ("rebuild", handlers.rebuild), ("batch", handlers.batch),
         ("status", handlers.status), ("settings", handlers.settings),
         ("toggle_limits", handlers.toggle_limits), ("logs", handlers.logs),
         ("pause", handlers.pause), ("resume", handlers.resume),

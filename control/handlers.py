@@ -137,6 +137,12 @@ class ControlHandlers:
         if not name:return await update.message.reply_text("Usage: /series <title>")
         qid=await self.db.add_movie(name,self.owner_id,"series");await update.message.reply_text(f"✅ Series queued #{qid}: {name}")
 
+    async def rebuild(self, update, context):
+        name=" ".join(context.args).strip()
+        if not name:return await update.message.reply_text("Usage: /rebuild <movie title>")
+        qid=await self.db.add_movie(name,self.owner_id,"movie",force_rebuild=True)
+        await update.message.reply_text(f"🔄 Forced clean movie rebuild queued #{qid}: {name}")
+
     async def batch(self, update, context):
         await update.message.reply_text("Choose the content type for this batch.", reply_markup=content_type_keyboard("batchtype"))
 

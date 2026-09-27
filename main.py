@@ -144,6 +144,7 @@ async def run():
             await control.bot.set_my_commands([
                 BotCommand("start", "Open the admin panel"), BotCommand("add", "Choose type for one title"),
                 BotCommand("movie", "Queue a movie directly"), BotCommand("series", "Queue a series directly"),
+                BotCommand("rebuild", "Force a clean movie rebuild"),
                 BotCommand("batch", "Choose type and queue multiple titles"), BotCommand("status", "Show live pipeline status"),
                 BotCommand("settings", "Open detailed settings"), BotCommand("logs", "Show recent activity"),
                 BotCommand("pause", "Pause the queue worker"), BotCommand("resume", "Resume the queue worker"),
