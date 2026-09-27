@@ -5,6 +5,8 @@ import json
 import logging
 from pipeline.context import PipelineContext
 from utils.notifications import notify_control_bot
+from utils.github_store import persist_state
+from utils.text_parser import normalize_title
 from pipeline.stages import (
     stage_1_search, stage_2_filter, stage_3_fetch, stage_4_channel, stage_5_promote,
     stage_6_copy, stage_7_batch, stage_8_shorten, stage_9_post,
@@ -41,6 +43,38 @@ class Orchestrator:
         resume_at = max(1, int(row.get("current_stage") or 1))
         stage = resume_at
         try:
+            if resume_at <= 1:
+                existing = await self.ctx.db.find_channel_by_movie(movie)
+                if not existing:
+                    # Recover channels created before durable registry support by
+                    # scanning the userbot's existing channel dialogs.
+                    expected = normalize_title(self.ctx.cfg.channel_name.format(movie=movie))
+                    async for dialog in self.ctx.client.get_dialogs(limit=500):
+                        chat = dialog.chat
+                        if chat.title and normalize_title(chat.title) == expected and "channel" in str(chat.type).lower():
+                            invite = await self.ctx.speed.call(lambda c=chat: self.ctx.client.export_chat_invite_link(c.id), qid)
+                            await self.ctx.db.register_channel(qid, movie, chat.id, invite)
+                            await persist_state(self.ctx.db)
+                            existing = await self.ctx.db.find_channel_by_movie(movie)
+                            break
+                if existing:
+                    try:
+                        await self.ctx.speed.call(lambda: self.ctx.client.get_chat(existing["channel_id"]), qid)
+                        invite = await self.ctx.speed.call(lambda: self.ctx.client.export_chat_invite_link(existing["channel_id"]), qid)
+                        await self.ctx.db.complete(qid)
+                        await notify_control_bot(
+                            self.ctx.cfg.control_token, self.ctx.cfg.owner_id,
+                            f"ℹ️ Channel already exists for {movie}:\n{invite}",
+                        )
+                        await self.ctx.db.log("Duplicate request skipped; existing channel returned", "INFO", qid)
+                        return
+                    except Exception as exc:
+                        text = str(exc).lower()
+                        if any(marker in text for marker in ("channel_invalid", "channel_private", "peer_id_invalid", "not found", "deleted")):
+                            await self.ctx.db.remove_channel(existing["channel_id"])
+                            await persist_state(self.ctx.db)
+                        else:
+                            raise
             state = await self.ctx.db.state(qid)
             if resume_at <= 1:
                 stage = 1
@@ -120,8 +154,10 @@ class Orchestrator:
                 await stage_10_catalog.run(self.ctx, qid, movie, channel["invite_link"], fetched[0]["source_message_id"])
 
             await self.ctx.db.complete(qid)
+            await self.ctx.db.finalize_channel(channel["channel_id"], batch, batch_short)
             await self.ctx.db.log(f"Completed {movie}", "INFO", qid)
             await notify_control_bot(self.ctx.cfg.control_token, self.ctx.cfg.owner_id, f'✅ Completed: {movie}\n{channel["invite_link"]}')
+            await persist_state(self.ctx.db)
         except asyncio.CancelledError:
             raise
         except Exception as exc:

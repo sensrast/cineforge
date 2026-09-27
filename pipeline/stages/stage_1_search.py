@@ -29,7 +29,7 @@ async def run(ctx: PipelineContext, qid: int, movie: str) -> list[dict]:
             break
         seen_text.add(text)
         pages.append({"id": current.id, "text": text, "buttons": buttons(current)})
-        matches = parse_results(pages, desired, allow_non_hindi=(language == "any"))
+        matches = parse_results(pages, desired, allow_non_hindi=(language == "any"), title_query=movie)
         found = {item["quality"] for item in matches}
         progress = (
             f"Movie Hunt page {len(pages)}: found {', '.join(sorted(found)) or 'no desired qualities'} "

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 from database.connection import Database
+from utils.text_parser import normalize_title
 
 class Queries:
  def __init__(self, db: Database): self.db=db
@@ -28,4 +29,11 @@ class Queries:
  async def count_today(self)->int:
   r=await self.db.fetchone("SELECT COUNT(*) n FROM created_channels WHERE date(created_at)=date('now')"); return r['n']
  async def register_channel(self,qid:int,movie:str,cid:int,invite:str): await self.db.execute("INSERT OR IGNORE INTO created_channels(queue_id,movie_name,channel_id,invite_link) VALUES(?,?,?,?)",(qid,movie,cid,invite))
+ async def find_channel_by_movie(self,movie:str):
+  wanted=normalize_title(movie)
+  for row in await self.db.fetchall("SELECT * FROM created_channels ORDER BY id DESC"):
+   if normalize_title(row['movie_name'])==wanted:return row
+  return None
+ async def remove_channel(self,cid:int): await self.db.execute("DELETE FROM created_channels WHERE channel_id=?",(cid,))
+ async def finalize_channel(self,cid:int,batch:str,short:str): await self.db.execute("UPDATE created_channels SET batch_link=?,shortened_link=? WHERE channel_id=?",(batch,short,cid))
  async def created_by_channel(self,cid:int): return await self.db.fetchone("SELECT * FROM created_channels WHERE channel_id=?",(cid,))

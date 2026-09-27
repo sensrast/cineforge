@@ -19,6 +19,7 @@ from pipeline.orchestrator import Orchestrator
 from pipeline.stages.stage_5_promote import register as register_promote
 from control.bot import build_control_bot
 from utils.logger import setup_logging
+from utils.github_store import load_state
 log = logging.getLogger("cineforge")
 
 async def health(request):
@@ -83,6 +84,21 @@ class UserbotRuntime:
             self.client = self.worker = self.task = None
             self.health_app["userbot"] = False; self.health_app["worker"] = False
 
+async def restore_render_state(queries: Queries) -> None:
+    """Restore settings and channel registry from durable private storage."""
+    try:
+        state = await load_state()
+        saved = state.get("settings", {})
+        for key, value in saved.items():
+            await queries.set_setting(str(key), str(value))
+        for item in state.get("channels", []):
+            await queries.db.execute(
+                "INSERT OR IGNORE INTO created_channels(movie_name,channel_id,invite_link,batch_link,shortened_link) VALUES(?,?,?,?,?)",
+                (item.get("movie_name", ""), int(item["channel_id"]), item.get("invite_link"), item.get("batch_link"), item.get("shortened_link")),
+            )
+    except Exception:
+        log.exception("Could not restore durable CineForge state")
+
 async def apply_saved_settings(queries: Queries) -> None:
     mapping = {
         "api_id": ("api_id", int), "api_hash": ("api_hash", str), "owner_username": ("owner_username", str),
@@ -106,6 +122,7 @@ async def run():
     setup_logging(); health_app, runner = await serve_health()
     db = Database(settings.db_path); await db.connect(); await db.init_schema(Path(__file__).parent / "database/schema.sql")
     queries = Queries(db)
+    await restore_render_state(queries)
     await db.execute("UPDATE queue SET status='pending' WHERE status NOT IN ('pending','completed','failed','cancelled')")
     await apply_saved_settings(queries)
     if not settings.control_token or not settings.owner_id:

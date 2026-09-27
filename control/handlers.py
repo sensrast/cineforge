@@ -3,6 +3,7 @@ from functools import wraps
 from telegram import Update
 from telegram.error import BadRequest
 from telegram.ext import ContextTypes
+from utils.github_store import persist_state
 from control.keyboards import (
     SETTING_DEFS, CATEGORIES, display_value, home_keyboard, settings_root_keyboard,
     category_keyboard, field_keyboard, input_cancel_keyboard, confirmation_keyboard,
@@ -208,6 +209,7 @@ class ControlHandlers:
         if attr:
             converter = int if key in {"api_id", "max_channels_per_day", "source_timeout", "flow_timeout", "max_search_pages"} else float if key in {"delay_between_actions", "delay_between_movies"} else str
             setattr(self.cfg, attr, converter(value))
+        await persist_state(self.db)
 
     async def status_text(self) -> str:
         rows = await self.db.queue_list(); today = await self.db.count_today(); paused = await self.db.setting("pipeline_paused", "false")
@@ -226,6 +228,7 @@ class ControlHandlers:
     async def toggle_limits(self, update, context):
         old = await self.db.setting("limits_enabled", "false"); new = "false" if old == "true" else "true"
         await self.db.set_setting("limits_enabled", new); self.cfg.limits_enabled = new == "true"
+        await persist_state(self.db)
         await update.message.reply_text(f"Limits: {new.upper()}", reply_markup=back_home_keyboard())
 
     async def callback(self, update, context):
@@ -265,6 +268,7 @@ class ControlHandlers:
                 old = await self._value(key); new = "false" if old == "true" else "true"; await self.db.set_setting(key, new)
                 if key == "limits_enabled": self.cfg.limits_enabled = new == "true"
                 if key == "auto_catalog": self.cfg.auto_catalog = new == "true"
+                await persist_state(self.db)
                 return await self._settings_root(query=query)
             if action == "open": return await self._field(query, key)
             if action == "edit":
@@ -274,6 +278,7 @@ class ControlHandlers:
             if action == "clear":
                 await self.db.set_setting(key, ""); attr = CFG_ATTRS.get(key)
                 if attr: setattr(self.cfg, attr, "")
+                await persist_state(self.db)
                 return await self._field(query, key)
             if action == "choose":
                 value = ":".join(parts[3:]); await self._save_setting(key, value); return await self._field(query, key)

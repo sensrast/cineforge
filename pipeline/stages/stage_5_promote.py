@@ -7,7 +7,7 @@ from pyrogram.enums import ChatMemberStatus
 from pyrogram.handlers import ChatMemberUpdatedHandler
 from pyrogram.types import ChatPrivileges
 from pipeline.context import PipelineContext
-from utils.notifications import notify_control_bot, get_control_bot_identity
+from utils.notifications import notify_control_bot, get_control_bot_identity, bot_api_request
 log = logging.getLogger(__name__)
 
 OWNER_PRIVILEGES = ChatPrivileges(
@@ -21,9 +21,35 @@ FILESTORE_PRIVILEGES = ChatPrivileges(
     can_post_messages=True, can_edit_messages=True, can_delete_messages=True,
     can_invite_users=True,
 )
+CONTROL_PRIVILEGES = ChatPrivileges(
+    can_manage_chat=True, can_post_messages=True, can_edit_messages=True,
+    can_delete_messages=True, can_invite_users=True, can_promote_members=True,
+)
 _WATCHERS: set[asyncio.Task] = set()
 
-async def add_filestore_admin(ctx: PipelineContext, qid: int, channel_id: int) -> None:
+async def _grant_modern_botapi_rights(ctx: PipelineContext, qid: int, channel_id: int, user_id: int, full: bool = False) -> bool:
+    """Best-effort grant of rights newer than Pyrogram 2.0.106's schema."""
+    payload = {
+        "chat_id": channel_id, "user_id": user_id,
+        "can_manage_chat": True, "can_post_messages": True,
+        "can_edit_messages": True, "can_delete_messages": True,
+        "can_invite_users": True,
+        "can_send_welcome_messages": True,
+        "can_manage_direct_messages": True,
+    }
+    if full:
+        payload.update({
+            "can_change_info": True, "can_restrict_members": True,
+            "can_promote_members": True, "can_manage_video_chats": True,
+        })
+    try:
+        await bot_api_request(ctx.cfg.control_token, "promoteChatMember", payload)
+        return True
+    except Exception as exc:
+        await ctx.db.log(f"Modern welcome-message permission pass was rejected: {exc}", "WARNING", qid)
+        return False
+
+async def add_filestore_admin(ctx: PipelineContext, qid: int, channel_id: int) -> int:
     """Resolve and add the file-store bot directly as a channel admin."""
     bot = await ctx.speed.call(lambda: ctx.client.get_users(ctx.cfg.filestore_bot), qid)
     try:
@@ -34,8 +60,9 @@ async def add_filestore_admin(ctx: PipelineContext, qid: int, channel_id: int) -
         if "already" not in str(exc).lower() and "admin" not in str(exc).lower():
             raise RuntimeError(f"Could not add @{ctx.cfg.filestore_bot} as channel administrator: {exc}") from exc
     await ctx.db.log("File-store bot added directly as administrator", "INFO", qid)
+    return bot.id
 
-async def add_control_bot_admin(ctx: PipelineContext, qid: int, channel_id: int) -> None:
+async def add_control_bot_admin(ctx: PipelineContext, qid: int, channel_id: int) -> int:
     """Add the private control bot as admin so it can post URL keyboards."""
     identity = await get_control_bot_identity(ctx.cfg.control_token)
     username = identity.get("username")
@@ -44,12 +71,13 @@ async def add_control_bot_admin(ctx: PipelineContext, qid: int, channel_id: int)
     bot = await ctx.speed.call(lambda: ctx.client.get_users(username), qid)
     try:
         await ctx.speed.call(
-            lambda: ctx.client.promote_chat_member(channel_id, bot.id, FILESTORE_PRIVILEGES), qid,
+            lambda: ctx.client.promote_chat_member(channel_id, bot.id, CONTROL_PRIVILEGES), qid,
         )
     except Exception as exc:
         if "already" not in str(exc).lower() and "admin" not in str(exc).lower():
             raise RuntimeError(f"Could not add @{username} as channel administrator: {exc}") from exc
     await ctx.db.log("Control bot added as administrator for inline-button posts", "INFO", qid)
+    return bot.id
 
 async def _find_owner(ctx: PipelineContext, channel_id: int):
     """Find the owner in channel participants and populate Pyrogram's peer cache."""
@@ -69,7 +97,8 @@ async def _promote_owner(ctx: PipelineContext, qid: int, channel_id: int, title:
     member = await _find_owner(ctx, channel_id)
     if not member:
         return False
-    if member.status not in {ChatMemberStatus.OWNER, ChatMemberStatus.ADMINISTRATOR}:
+    modern_granted = await _grant_modern_botapi_rights(ctx, qid, channel_id, member.user.id, full=True)
+    if member.status not in {ChatMemberStatus.OWNER, ChatMemberStatus.ADMINISTRATOR} and not modern_granted:
         # Iterating members above caches the user's access hash, making the ID
         # resolvable even when the userbot had no prior private chat with them.
         await ctx.speed.call(
@@ -103,8 +132,10 @@ async def _owner_watcher(ctx: PipelineContext, qid: int, channel_id: int, title:
 
 async def prepare_channel(ctx: PipelineContext, qid: int, channel_id: int, title: str) -> None:
     """Add the file-store bot and launch owner promotion without waiting."""
-    await add_filestore_admin(ctx, qid, channel_id)
-    await add_control_bot_admin(ctx, qid, channel_id)
+    filestore_id = await add_filestore_admin(ctx, qid, channel_id)
+    control_id = await add_control_bot_admin(ctx, qid, channel_id)
+    await _grant_modern_botapi_rights(ctx, qid, channel_id, control_id, full=True)
+    await _grant_modern_botapi_rights(ctx, qid, channel_id, filestore_id)
     task = asyncio.create_task(
         _owner_watcher(ctx, qid, channel_id, title),
         name=f"owner-promotion-{qid}",

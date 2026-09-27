@@ -1,5 +1,6 @@
 from pipeline.context import PipelineContext
 from utils.notifications import notify_control_bot
+from utils.github_store import persist_state
 
 async def run(ctx: PipelineContext, qid: int, movie: str) -> dict:
     """Create the channel and send only its invite link to the owner.
@@ -23,6 +24,7 @@ async def run(ctx: PipelineContext, qid: int, movie: str) -> dict:
     invite = await ctx.speed.call(lambda: ctx.client.export_chat_invite_link(channel.id), qid)
     await ctx.db.patch_state(qid, channel_id=channel.id, invite_link=invite)
     await ctx.db.register_channel(qid, movie, channel.id, invite)
+    await persist_state(ctx.db)
 
     # Send through the control bot, which already has a private chat with the
     # owner. An MTProto account cannot always resolve an arbitrary numeric user
