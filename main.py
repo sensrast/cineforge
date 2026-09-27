@@ -2,7 +2,9 @@
 from __future__ import annotations
 import argparse
 import asyncio
+import json
 import logging
+import os
 import signal
 from pathlib import Path
 from aiohttp import web
@@ -19,7 +21,7 @@ from pipeline.orchestrator import Orchestrator
 from pipeline.stages.stage_5_promote import register as register_promote
 from control.bot import build_control_bot
 from utils.logger import setup_logging
-from utils.github_store import load_state
+from utils.github_store import load_state, persist_state
 log = logging.getLogger("cineforge")
 
 async def health(request):
@@ -89,6 +91,9 @@ async def restore_render_state(queries: Queries) -> None:
     try:
         state = await load_state()
         saved = state.get("settings", {})
+        if not saved:
+            # One-time migration from the earlier Render-env persistence.
+            saved = json.loads(os.getenv("CINEFORGE_SETTINGS_JSON", "{}"))
         for key, value in saved.items():
             await queries.set_setting(str(key), str(value))
         for item in state.get("channels", []):
@@ -125,6 +130,8 @@ async def run():
     await restore_render_state(queries)
     await db.execute("UPDATE queue SET status='pending' WHERE status NOT IN ('pending','completed','failed','cancelled')")
     await apply_saved_settings(queries)
+    try: await persist_state(queries)
+    except Exception: log.exception("Could not persist restored startup state")
     if not settings.control_token or not settings.owner_id:
         raise RuntimeError("CONTROL_BOT_TOKEN and OWNER_USER_ID are required bootstrap settings.")
 
