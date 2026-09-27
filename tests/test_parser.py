@@ -1,5 +1,5 @@
 import unittest
-from utils.text_parser import parse_results,extract_batch_link,clean_title,is_series,title_matches
+from utils.text_parser import parse_results,extract_batch_link,clean_title,is_series,title_matches,format_template
 class ParserTests(unittest.TestCase):
  def test_multi_block_mapping(self):
   text='''Name:\nFilm Hindi 480p WebRip\nSize: 500 MB\nType: video\nClick Download 1\nName:\nFilm Dual Audio 1080p HEVC 10bit\nSize: 2.86 GB\nType: video\nClick Download 2'''
@@ -30,6 +30,14 @@ class ParserTests(unittest.TestCase):
   buttons=[{'text':'Download 1 : 1 GB'},{'text':'Download 2 : 900 MB'}]
   found=parse_results([{'id':12,'text':text,'buttons':buttons}],{'720p'},title_query='Pushpa')
   self.assertEqual(found[0]['button_text'],'Download 2 : 900 MB')
+ def test_branding_placeholder_case_aliases(self):
+  self.assertEqual(format_template('@{Owner_username}',owner_username='MyChannel'),'@MyChannel')
+ def test_series_order_and_grouping(self):
+  text=('Name:\nMoney Heist S01E01 Hindi 720p\nSize: 1 GB\nClick Download 2\n'
+        'Name:\nMoney Heist S01E01 Hindi 480pHEVC\nSize: 500 MB\nClick Download 01')
+  buttons=[{'text':'Download 01 : 500 MB'},{'text':'Download 2 : 1 GB'}]
+  found=parse_results([{'id':20,'text':text,'buttons':buttons}],{'480p','720p'},title_query='Money Heist')
+  self.assertEqual([(x['season'],x['episode'],x['quality']) for x in found],[(1,1,'480p'),(1,1,'720p')])
  def test_links_titles(self):
   self.assertEqual(extract_batch_link('https://t.me/movieinhindibot?start=abc-2'),'https://t.me/movieinhindibot?start=abc-2')
   self.assertEqual(clean_title('Pushpa 2 in Hindi'),'Pushpa 2')

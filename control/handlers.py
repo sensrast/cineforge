@@ -199,8 +199,9 @@ class ControlHandlers:
             if not parts or any(part not in allowed for part in parts): raise ValueError("Use comma-separated values from 480p, 720p, 1080p, 2160p, 4K.")
             value = ",".join("4K" if part == "4k" else part for part in parts)
         elif kind == "template":
-            if key == "channel_name" and "{movie}" not in value: raise ValueError("Channel-name format must include {movie}.")
-            if key == "caption" and ("{movie}" not in value or "{quality}" not in value): raise ValueError("Caption must include {movie} and {quality}.")
+            lowered = value.lower()
+            if key == "channel_name" and "{movie}" not in lowered: raise ValueError("Channel-name format must include {movie} (any letter case is accepted).")
+            if key == "caption" and ("{movie}" not in lowered or "{quality}" not in lowered): raise ValueError("Caption must include {movie} and {quality} (any letter case is accepted).")
         return value
 
     async def _save_setting(self, key: str, value: str) -> None:

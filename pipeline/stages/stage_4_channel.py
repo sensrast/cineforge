@@ -1,6 +1,7 @@
 from pipeline.context import PipelineContext
 from utils.notifications import notify_control_bot
 from utils.github_store import persist_state
+from utils.text_parser import format_template
 
 async def run(ctx: PipelineContext, qid: int, movie: str) -> dict:
     """Create the channel and send only its invite link to the owner.
@@ -15,8 +16,8 @@ async def run(ctx: PipelineContext, qid: int, movie: str) -> dict:
 
     channel = await ctx.speed.call(
         lambda: ctx.client.create_channel(
-            ctx.cfg.channel_name.format(movie=movie),
-            ctx.cfg.channel_description.format(movie=movie, owner_username=ctx.cfg.owner_username),
+            format_template(ctx.cfg.channel_name, movie=movie, owner_username=ctx.cfg.owner_username),
+            format_template(ctx.cfg.channel_description, movie=movie, owner_username=ctx.cfg.owner_username),
         ), qid,
     )
     # Resolve/cache the newly created peer before member updates arrive.

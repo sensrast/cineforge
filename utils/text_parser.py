@@ -52,10 +52,20 @@ def _blocks(text: str) -> list[str]:
     parts = re.split(r"(?i)(?=\bName\s*:)", text)
     return [part.strip() for part in parts if part.strip()] or [text]
 
+def parse_episode(text: str) -> tuple[int | None, int | None]:
+    compact = re.search(r"(?i)\bS(?:eason)?[ ._-]*(\d{1,2})[ ._-]*E(?:p(?:isode)?)?[ ._-]*(\d{1,3})\b", text)
+    if compact:
+        return int(compact.group(1)), int(compact.group(2))
+    verbose = re.search(r"(?i)\bSeason[ ._-]*(\d{1,2}).*?Episode[ ._-]*(\d{1,3})\b", text)
+    if verbose:
+        return int(verbose.group(1)), int(verbose.group(2))
+    episode = re.search(r"(?i)\bE(?:p(?:isode)?)?[ ._-]*(\d{1,3})\b", text)
+    return (1, int(episode.group(1))) if episode else (None, None)
+
 def parse_results(messages: list[dict[str, Any]], desired: set[str], allow_non_hindi: bool = False, title_query: str = "") -> list[dict[str, Any]]:
     """Map each matching title block to its numbered Download button."""
     wanted = {normalize_quality(item.strip()) for item in desired}
-    best: dict[str, dict[str, Any]] = {}
+    best: dict[tuple, dict[str, Any]] = {}
     for message in messages:
         full_text = message.get("text", "") or ""
         all_buttons = message.get("buttons", [])
@@ -76,31 +86,62 @@ def parse_results(messages: list[dict[str, Any]], desired: set[str], allow_non_h
             quality = normalize_quality(quality_match.group(1))
             if quality not in wanted:
                 continue
-            index_match = re.search(r"(?i)(?:Click\s+)?Download\s*(\d+)", block)
+            index_match = re.search(r"(?i)(?:Click\s+)?Download\D{0,5}(\d+)", block)
+            numbered = []
+            for button_candidate in all_buttons:
+                match = re.search(r"(?i)Download\D{0,5}(\d+)", button_candidate.get("text", ""))
+                if match:
+                    numbered.append((int(match.group(1)), button_candidate))
+            candidates = []
             if index_match:
-                index = index_match.group(1)
-                candidates = [b for b in all_buttons if re.search(rf"(?i)Download\s*{re.escape(index)}(?:\D|$)", b.get("text", ""))]
-            else:
-                candidates = [b for b in all_buttons if re.search(r"(?i)Download\s*\d+", b.get("text", ""))]
+                wanted_index = int(index_match.group(1))
+                candidates = [button for number, button in numbered if number == wanted_index]
+            if not candidates:
+                # Defensive fallback for layouts that omit/mangle the number:
+                # match the displayed size, then use the block's ordinal.
+                block_size = size_mb(block)
+                if block_size:
+                    candidates = [b for _, b in numbered if abs(size_mb(b.get("text", "")) - block_size) < 1]
             if not candidates:
                 continue
             button = candidates[0]
+            season, episode = parse_episode(source_name)
             item = {
                 "quality": quality,
+                "season": season,
+                "episode": episode,
+                "is_series": episode is not None,
                 "source_message_id": message["id"],
                 "button_text": button["text"],
                 "callback_data": button.get("callback_data"),
                 "size_mb": size_mb(block + " " + button["text"]),
                 "source_name": source_name,
             }
-            if quality not in best or item["size_mb"] > best[quality]["size_mb"]:
-                best[quality] = item
+            key = (season, episode, quality) if episode is not None else (None, None, quality)
+            if key not in best or item["size_mb"] > best[key]["size_mb"]:
+                best[key] = item
     order = {"480p": 0, "720p": 1, "1080p": 2, "2160p": 3}
-    return sorted(best.values(), key=lambda item: order.get(item["quality"], 99))
+    return sorted(best.values(), key=lambda item: (
+        item.get("season") or 0, item.get("episode") or 0, order.get(item["quality"], 99)
+    ))
 
 def extract_batch_link(text: str) -> str | None:
     match = BATCH_RE.search(text or "")
     return match.group(0) if match else None
+
+def format_template(template: str, **values: str) -> str:
+    """Format user templates with case-insensitive placeholder aliases."""
+    expanded = dict(values)
+    for key, value in list(values.items()):
+        expanded[key.lower()] = value
+        expanded[key.upper()] = value
+        expanded[key.capitalize()] = value
+    try:
+        return template.format_map(expanded)
+    except KeyError as exc:
+        raise ValueError(
+            f"Unknown template placeholder {exc}. Supported placeholders: " + ", ".join(sorted(values))
+        ) from exc
 
 def clean_title(name: str) -> str:
     return re.sub(r"(?i)\s*(?:\(|-)?\s*in\s+hindi\s*\)?\s*$", "", name).strip()

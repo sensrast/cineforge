@@ -1,6 +1,7 @@
 """Catalog-bot wizard with edited-message-aware synchronization."""
 from __future__ import annotations
 import asyncio
+import json
 import re
 import time
 from pathlib import Path
@@ -113,7 +114,10 @@ async def run(ctx: PipelineContext, qid: int, movie: str, invite: str, source_me
         message = await _click_and_wait(ctx, qid, message, [r"skip", r"⏩"])
 
     message = await _send_and_wait(ctx, qid, invite)
-    series = is_series(movie)
+    state = await ctx.db.state(qid)
+    filtered = json.loads(state['filtered_files_json'] or '[]') if state else []
+    episode_keys = {(item.get('season'), item.get('episode')) for item in filtered if item.get('episode') is not None}
+    series = is_series(movie) or bool(episode_keys)
     message = await _click_and_wait(ctx, qid, message, [r"web.*series" if series else r"movies?"])
 
     genre = await ctx.db.setting("default_genre", ctx.cfg.default_genre)
@@ -133,7 +137,7 @@ async def run(ctx: PipelineContext, qid: int, movie: str, invite: str, source_me
     language_panel = await _wait_visible_button(ctx, language_patterns)
     message = await _click_and_wait(ctx, qid, language_panel, language_patterns)
     message = await _click_and_wait(ctx, qid, message, [r"ongoing" if series else r"completed"])
-    message = await _send_and_wait(ctx, qid, "0")
+    message = await _send_and_wait(ctx, qid, str(len(episode_keys)) if series else "0")
     message = await _click_and_wait(ctx, qid, message, [r"safe", r"no", r"❌"])
     await _click_and_wait(ctx, qid, message, [r"publish", r"submit"])
 

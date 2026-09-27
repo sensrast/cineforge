@@ -37,12 +37,15 @@ async def run(
     copied_files: list[dict],
     link: str,
 ) -> int:
-    qualities = [item["quality"] for item in copied_files]
+    quality_order = {"480p": 0, "720p": 1, "1080p": 2, "2160p": 3}
+    qualities = sorted({item["quality"] for item in copied_files}, key=lambda q: quality_order.get(q, 99))
+    episodes = {(item.get("season"), item.get("episode")) for item in copied_files if item.get("episode") is not None}
     text = (
         f"🎬 {movie}\n\n"
         f"🔊 Audio: Hindi\n"
         f"⚡ Available Qualities: {' | '.join(qualities)}\n"
-        f"📅 Added: {datetime.now().strftime('%d %B %Y')}\n\n"
+        + (f"📺 Episodes: {len(episodes)}\n" if episodes else "")
+        + f"📅 Added: {datetime.now().strftime('%d %B %Y')}\n\n"
         "👇 Tap the button below to download 👇"
     )
     if ctx.cfg.owner_username:

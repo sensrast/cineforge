@@ -1,8 +1,12 @@
 from __future__ import annotations
+import json
 from datetime import datetime,timezone
 from pipeline.context import PipelineContext
 from pipeline.stages.common import latest_id,newest_after
 async def run(ctx:PipelineContext,qid:int,files:list[dict])->list[dict]:
+ state=await ctx.db.state(qid)
+ existing=json.loads(state['fetched_files_json'] or '[]') if state else []
+ if existing and any(item.get('episode') is not None for item in existing):return existing
  out=[];chat=ctx.cfg.source_bot
  for f in files:
   message=await ctx.client.get_messages(chat,f['source_message_id']); before=await latest_id(ctx.client,chat)

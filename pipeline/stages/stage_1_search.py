@@ -1,11 +1,40 @@
 from __future__ import annotations
 import asyncio
 import logging
+from datetime import datetime, timezone
 from pipeline.context import PipelineContext
 from pipeline.stages.common import latest_id, buttons, newest_after
 from utils.text_parser import parse_results, normalize_quality
 
 log = logging.getLogger(__name__)
+
+async def _fetch_series_page(ctx: PipelineContext, qid: int, current, items: list[dict], fetched: list[dict], seen: set[tuple]) -> None:
+    """Fetch episode qualities while their edited-page buttons still exist."""
+    chat = ctx.cfg.source_bot
+    for item in items:
+        key = (item.get("season"), item.get("episode"), item["quality"])
+        if key in seen:
+            continue
+        current = await ctx.client.get_messages(chat, current.id)
+        position = None
+        if current.reply_markup:
+            for row_index, row in enumerate(current.reply_markup.inline_keyboard):
+                for column_index, button in enumerate(row):
+                    if (button.text or "") == item["button_text"]:
+                        position = (column_index, row_index); break
+                if position: break
+        if not position:
+            await ctx.db.log(f"Series button unavailable for S{item.get('season')}E{item.get('episode')} {item['quality']}", "WARNING", qid)
+            continue
+        before = await latest_id(ctx.client, chat)
+        await ctx.speed.call(lambda m=current, p=position: m.click(*p), qid)
+        media = await newest_after(ctx.client, chat, before, max(60, ctx.cfg.flow_timeout), lambda m: bool(m.video or m.document))
+        fetched.append({
+            "quality": item["quality"], "season": item.get("season"), "episode": item.get("episode"),
+            "source_message_id": media.id, "received_at": datetime.now(timezone.utc).isoformat(),
+        })
+        seen.add(key)
+        await ctx.speed.delay()
 
 async def run(ctx: PipelineContext, qid: int, movie: str) -> list[dict]:
     """Search Movie Hunt and walk edited-message pagination defensively."""
@@ -23,12 +52,20 @@ async def run(ctx: PipelineContext, qid: int, movie: str) -> list[dict]:
     desired = {normalize_quality(item) for item in desired_raw}
     language = (await ctx.db.setting("language_filter", ctx.cfg.language_filter)).strip().lower()
     strategy = (await ctx.db.setting("search_strategy", ctx.cfg.search_strategy)).strip().lower()
+    series_fetched: list[dict] = []
+    series_seen: set[tuple] = set()
+    series_mode = False
     for _ in range(max_pages):
         text = current.text or current.caption or ""
         if text in seen_text:
             break
         seen_text.add(text)
-        pages.append({"id": current.id, "text": text, "buttons": buttons(current)})
+        page_data = {"id": current.id, "text": text, "buttons": buttons(current)}
+        pages.append(page_data)
+        page_matches = parse_results([page_data], desired, allow_non_hindi=(language == "any"), title_query=movie)
+        if any(item.get("is_series") for item in page_matches):
+            series_mode = True
+            await _fetch_series_page(ctx, qid, current, [item for item in page_matches if item.get("is_series")], series_fetched, series_seen)
         matches = parse_results(pages, desired, allow_non_hindi=(language == "any"), title_query=movie)
         found = {item["quality"] for item in matches}
         progress = (
@@ -40,10 +77,10 @@ async def run(ctx: PipelineContext, qid: int, movie: str) -> list[dict]:
         # Movie Hunt usually edits one result message in-place. Therefore,
         # First Matching Page is the safe default: once usable files exist,
         # preserve that keyboard and proceed directly to file fetching.
-        if found and strategy == "first matching page":
+        if found and strategy == "first matching page" and not series_mode:
             await ctx.db.log("Usable files found; preserving this page and stopping pagination", "INFO", qid)
             break
-        if desired and desired.issubset(found) and strategy != "scan every page":
+        if desired and desired.issubset(found) and strategy != "scan every page" and not series_mode:
             await ctx.db.log("All desired qualities found; stopping pagination", "INFO", qid)
             break
         next_pos = None
@@ -82,5 +119,12 @@ async def run(ctx: PipelineContext, qid: int, movie: str) -> list[dict]:
         if changed is None:
             break
         current = changed
-    await ctx.db.patch_state(qid, source_messages_json=pages)
+    updates = {"source_messages_json": pages}
+    if series_fetched:
+        updates["fetched_files_json"] = sorted(series_fetched, key=lambda item: (
+            item.get("season") or 0, item.get("episode") or 0,
+            {"480p": 0, "720p": 1, "1080p": 2, "2160p": 3}.get(item["quality"], 99),
+        ))
+        await ctx.db.log(f"Prefetched {len(series_fetched)} episodic files across result pages", "INFO", qid)
+    await ctx.db.patch_state(qid, **updates)
     return pages

@@ -6,7 +6,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 SETTING_DEFS: dict[str, dict[str, Any]] = {
     "api_id": {"title": "Telegram API ID", "category": "account", "kind": "int", "secret": False, "help": "Numeric API ID from my.telegram.org/apps."},
     "api_hash": {"title": "Telegram API Hash", "category": "account", "kind": "secret", "secret": True, "help": "API hash from my.telegram.org/apps."},
-    "owner_username": {"title": "Owner Username", "category": "account", "kind": "username", "help": "Username without @, used in captions."},
+    "owner_username": {"title": "Branding Username / Channel", "category": "account", "kind": "username", "help": "Owner-provided username or channel username used only for branding in captions and descriptions. It is not used to identify the admin account."},
     "source_bot": {"title": "Source Bot", "category": "integrations", "kind": "username", "help": "Bot searched for movie files."},
     "filestore_bot": {"title": "File-store Bot", "category": "integrations", "kind": "username", "help": "Bot used to generate batch links."},
     "catalog_bot": {"title": "Catalog Bot", "category": "integrations", "kind": "username", "help": "Bot receiving catalog submissions."},
