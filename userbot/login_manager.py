@@ -1,8 +1,10 @@
 """Owner-only, control-bot-driven MTProto authentication flow."""
 from __future__ import annotations
 import logging
+import os
 from dataclasses import dataclass
 from typing import Awaitable, Callable
+import aiohttp
 from pyrogram import Client
 from pyrogram.errors import (
     BadRequest, PhoneCodeExpired, PhoneCodeInvalid, PhoneNumberInvalid,
@@ -82,9 +84,40 @@ class LoginManager:
             await self.db.set_setting("userbot_session_string", session)
             await self.db.set_setting("userbot_phone", pending.phone)
             self.cfg.session_string = session
+            await self._persist_render_session(session)
         finally:
             await pending.client.disconnect()
         await self.start_engine(session)
+
+    async def _persist_render_session(self, session: str) -> None:
+        """Optionally persist the session as a Render environment secret.
+
+        This prevents loss on Render's ephemeral filesystem. The feature is
+        enabled only when RENDER_API_KEY and RENDER_SERVICE_ID are configured.
+        """
+        api_key = os.getenv("RENDER_API_KEY", "")
+        service_id = os.getenv("RENDER_SERVICE_ID", "")
+        if not api_key or not service_id:
+            return
+        endpoint = f"https://api.render.com/v1/services/{service_id}/env-vars"
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        timeout = aiohttp.ClientTimeout(total=30)
+        try:
+            async with aiohttp.ClientSession(timeout=timeout, headers=headers) as http:
+                async with http.get(endpoint) as response:
+                    response.raise_for_status()
+                    records = await response.json()
+                values = {item.get("envVar", item)["key"]: item.get("envVar", item).get("value", "") for item in records}
+                values["USERBOT_SESSION_STRING"] = session
+                payload = [{"key": key, "value": value} for key, value in values.items()]
+                async with http.put(endpoint, json=payload) as response:
+                    response.raise_for_status()
+                    await response.read()
+            log.info("Userbot session persisted to Render environment")
+        except Exception:
+            # Local database persistence still succeeds; do not invalidate a
+            # successful Telegram login because the optional backup failed.
+            log.exception("Could not persist userbot session to Render environment")
 
     async def abort(self, owner_id: int) -> None:
         pending = self.pending.pop(owner_id, None)
