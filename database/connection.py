@@ -20,6 +20,11 @@ class Database:
             columns={row[1] for row in await (await self.conn.execute(f"PRAGMA table_info({table})")).fetchall()}
             if "content_type" not in columns:
                 await self.conn.execute(f"ALTER TABLE {table} ADD COLUMN content_type TEXT NOT NULL DEFAULT 'movie'")
+        state_columns={row[1] for row in await (await self.conn.execute("PRAGMA table_info(pipeline_state)")).fetchall()}
+        if "backup_done" not in state_columns:
+            await self.conn.execute("ALTER TABLE pipeline_state ADD COLUMN backup_done INTEGER DEFAULT 0")
+        if "backup_message_ids_json" not in state_columns:
+            await self.conn.execute("ALTER TABLE pipeline_state ADD COLUMN backup_message_ids_json TEXT DEFAULT '[]'")
         await self.conn.commit()
     async def execute(self, sql: str, params: tuple[Any,...]=()) -> int:
         assert self.conn

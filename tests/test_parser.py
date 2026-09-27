@@ -38,6 +38,12 @@ class ParserTests(unittest.TestCase):
   buttons=[{'text':'Download 01 : 500 MB'},{'text':'Download 2 : 1 GB'}]
   found=parse_results([{'id':20,'text':text,'buttons':buttons}],{'480p','720p'},title_query='Money Heist')
   self.assertEqual([(x['season'],x['episode'],x['quality']) for x in found],[(1,1,'480p'),(1,1,'720p')])
+ def test_hindi_page_rejects_explicit_kannada_file(self):
+  text=('Name:\nPushpa Hindi 720p\nSize: 1 GB\nClick Download 1\n'
+        'Name:\nPushpa Kannada 480p\nSize: 500 MB\nClick Download 2')
+  buttons=[{'text':'Download 1 : 1 GB'},{'text':'Download 2 : 500 MB'}]
+  found=parse_results([{'id':40,'text':text,'buttons':buttons}],{'480p','720p'},title_query='Pushpa',content_type='movie')
+  self.assertEqual([item['quality'] for item in found],['720p'])
  def test_movie_mode_rejects_episodic_animal_results(self):
   text=('Name:\nAnimal 2023 Hindi 720p\nSize: 1 GB\nClick Download 1\n'
         'Name:\nAnimal Kingdom S01E01 Hindi 720p\nSize: 900 MB\nClick Download 2')

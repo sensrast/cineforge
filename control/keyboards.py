@@ -13,6 +13,8 @@ SETTING_DEFS: dict[str, dict[str, Any]] = {
     "arolinks_api_key": {"title": "AroLinks API Key", "category": "links", "kind": "secret", "secret": True, "help": "Leave unset to use the original batch link."},
     "arolinks_url": {"title": "AroLinks API URL", "category": "links", "kind": "url", "help": "AroLinks shortening API endpoint."},
     "tutorial_link": {"title": "Tutorial Link", "category": "links", "kind": "url_optional", "help": "Optional How to Open Link button destination."},
+    "backup_enabled": {"title": "Backup Storage", "category": "links", "kind": "bool", "help": "Copy media server-side to a private backup channel before deleting temporary channel files."},
+    "backup_channel": {"title": "Backup Channel", "category": "links", "kind": "text", "help": "Enter a numeric channel ID such as -100123... or a public @username. The userbot must be a member/admin."},
     "desired_qualities": {"title": "Desired Qualities", "category": "content", "kind": "qualities", "help": "Comma-separated list, such as 480p,720p,1080p,2160p."},
     "language_filter": {"title": "Source Language", "category": "content", "kind": "choice", "choices": ["Hindi", "Any"], "help": "Hindi accepts Hindi and Dual Audio. Any disables language filtering."},
     "search_strategy": {"title": "Search Strategy", "category": "content", "kind": "choice", "choices": ["First Matching Page", "All Desired Qualities", "Scan Every Page"], "help": "First Matching Page stops immediately when a page has usable files, preventing earlier buttons from disappearing."},
@@ -57,6 +59,8 @@ def display_value(key: str, value: str) -> str:
         return "••••" + value[-4:] if len(value) >= 4 else "••••"
     if definition.get("kind") == "sticker":
         return "Configured ✅"
+    if definition.get("kind") == "bool":
+        return "ON ✅" if str(value).lower() == "true" else "OFF"
     suffix = definition.get("suffix", "")
     return _short(value) + suffix
 
@@ -107,6 +111,8 @@ def field_keyboard(key: str) -> InlineKeyboardMarkup:
     rows = []
     if definition["kind"] == "choice":
         rows.extend([[InlineKeyboardButton(choice, callback_data=f"cfg:choose:{key}:{choice}")] for choice in definition["choices"]])
+    elif definition["kind"] == "bool":
+        rows.extend([[InlineKeyboardButton("✅ Enable", callback_data=f"cfg:choose:{key}:true")], [InlineKeyboardButton("❌ Disable", callback_data=f"cfg:choose:{key}:false")]])
     else:
         rows.append([InlineKeyboardButton("✏️ Change Value", callback_data=f"cfg:edit:{key}")])
     if key in {"tutorial_link", "arolinks_api_key"}:

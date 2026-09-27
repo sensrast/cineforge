@@ -6,7 +6,8 @@ from typing import Any
 # trailing word boundary would incorrectly miss the quality.
 QUALITY_RE = re.compile(r"(?i)(480\s*p|720\s*p|1080\s*p|2160\s*p|ds4k|4k)")
 SIZE_RE = re.compile(r"(?i)(\d+(?:\.\d+)?)\s*(KB|MB|GB|TB)")
-LANG_RE = re.compile(r"(?i)\b(hindi|dual[ ._-]*audio)\b|हिंदी")
+LANG_RE = re.compile(r"(?i)\bhindi\b|हिंदी")
+OTHER_LANG_RE = re.compile(r"(?i)\b(kannada|tamil|telugu|malayalam|bengali|bangla|marathi|gujarati|punjabi|odia|oriya|urdu|english)\b")
 BATCH_RE = re.compile(r"https?://t\.me/[A-Za-z0-9_]+\?start=[A-Za-z0-9_-]+")
 
 def normalize_quality(q: str) -> str:
@@ -75,8 +76,16 @@ def parse_results(messages: list[dict[str, Any]], desired: set[str], allow_non_h
         # identified as Hindi/Dual Audio, apply that context to every file block.
         page_is_hindi = bool(LANG_RE.search(full_text))
         for block in blocks:
-            if not allow_non_hindi and not (LANG_RE.search(block) or page_is_hindi):
-                continue
+            if not allow_non_hindi:
+                block_is_hindi = bool(LANG_RE.search(block))
+                block_is_other = bool(OTHER_LANG_RE.search(block))
+                # Explicit per-file language always wins over the page heading.
+                # Thus a Kannada 480p entry is rejected even when another item
+                # makes the overall page contain the word Hindi.
+                if block_is_other and not block_is_hindi:
+                    continue
+                if not block_is_hindi and not page_is_hindi:
+                    continue
             source_name = re.sub(r"(?is)^.*?Name\s*:\s*", "", block).splitlines()[0].strip()
             if title_query and not title_matches(title_query, source_name):
                 continue

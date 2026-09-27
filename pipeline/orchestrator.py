@@ -12,6 +12,7 @@ from pipeline.stages import (
     stage_6_copy, stage_7_batch, stage_8_shorten, stage_9_post,
     stage_10_catalog,
 )
+from pipeline.backup_storage import backup_movie
 log = logging.getLogger(__name__)
 
 class Orchestrator:
@@ -135,7 +136,8 @@ class Orchestrator:
 
             if resume_at <= 9:
                 stage = 9
-                await self.ctx.db.set_stage(qid, stage, "posting")
+                await self.ctx.db.set_stage(qid, stage, "backing_up_and_posting")
+                await backup_movie(self.ctx,qid,movie,channel["channel_id"],copied,batch)
                 await stage_9_post.run(self.ctx, qid, movie, channel["channel_id"], copied, batch_short)
 
             # Jobs that previously failed in cataloging may have a legacy

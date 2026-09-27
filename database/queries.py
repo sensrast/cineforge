@@ -16,7 +16,7 @@ class Queries:
  async def complete(self,qid:int): await self.db.execute("UPDATE queue SET status='completed',current_stage=10,updated_at=CURRENT_TIMESTAMP WHERE id=?",(qid,))
  async def state(self,qid:int): return await self.db.fetchone("SELECT * FROM pipeline_state WHERE queue_id=?",(qid,))
  async def patch_state(self,qid:int,**values:Any):
-  allowed={'source_messages_json','filtered_files_json','fetched_files_json','channel_id','invite_link','owner_promoted','forwarded_message_ids_json','batch_link','shortened_link','final_post_id','catalog_added'}
+  allowed={'source_messages_json','filtered_files_json','fetched_files_json','channel_id','invite_link','owner_promoted','forwarded_message_ids_json','batch_link','shortened_link','final_post_id','catalog_added','backup_done','backup_message_ids_json'}
   values={k:(json.dumps(v) if k.endswith('_json') and not isinstance(v,str) else v) for k,v in values.items() if k in allowed}
   if values:
    cols=", ".join(f"{k}=?" for k in values); await self.db.execute(f"UPDATE pipeline_state SET {cols},updated_at=CURRENT_TIMESTAMP WHERE queue_id=?",(*values.values(),qid))
