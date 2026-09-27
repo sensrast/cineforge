@@ -24,6 +24,10 @@ class ParserTests(unittest.TestCase):
   self.assertFalse(title_matches('Pushpa','Pushpa 2 The Rule 2024 Hindi 1080p'))
   self.assertTrue(title_matches('Pushpa 2','Pushpa 2 The Rule 2024 Hindi 1080p'))
   self.assertTrue(title_matches('Pushpa','Pushpa The Rise 2021 Hindi 720p'))
+  self.assertFalse(title_matches('Housefull','Housefull 5 2025 Hindi 480p.mkv'))
+  self.assertFalse(title_matches('Housefull','Housefull.5A.2025.Hindi.720p.mkv'))
+  self.assertFalse(title_matches('Housefull','Housefull Five Hindi 1080p.mkv'))
+  self.assertTrue(title_matches('Housefull 5','Housefull 5 2025 Hindi 1080p.mkv'))
  def test_result_parser_filters_wrong_sequel(self):
   text=('Name:\nPushpa 2 The Rule Hindi 720p\nSize: 1 GB\nClick Download 1\n'
         'Name:\nPushpa The Rise Hindi 720p\nSize: 900 MB\nClick Download 2')

@@ -47,7 +47,11 @@ def title_matches(query: str, candidate: str) -> bool:
     # sequel/part marker. Do not let a base-title request select that sequel.
     if not wanted_numbers and remainder:
         first = remainder[0]
-        if (first.isdigit() and 1 <= int(first) <= 20) or first in {"ii", "iii", "iv"}:
+        numbered = re.fullmatch(r"(\d{1,2})[a-z]?", first)
+        if (numbered and 1 <= int(numbered.group(1)) <= 20) or first in {
+            "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x",
+            "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+        }:
             return False
         if first in {"part", "chapter", "season"} and len(remainder) > 1 and remainder[1].isdigit():
             return False

@@ -4,11 +4,11 @@ import logging
 from datetime import datetime, timezone
 from pipeline.context import PipelineContext
 from pipeline.stages.common import latest_id, buttons, newest_after
-from utils.text_parser import parse_results, normalize_quality, explicit_non_hindi, media_label
+from utils.text_parser import parse_results, normalize_quality, explicit_non_hindi, media_label, title_matches
 
 log = logging.getLogger(__name__)
 
-async def _fetch_page_items(ctx: PipelineContext, qid: int, current, items: list[dict], fetched: list[dict], seen: set[tuple], strict_hindi: bool) -> None:
+async def _fetch_page_items(ctx: PipelineContext, qid: int, current, items: list[dict], fetched: list[dict], seen: set[tuple], strict_hindi: bool, movie: str) -> None:
     """Fetch matching qualities while their edited-page buttons still exist."""
     chat = ctx.cfg.source_bot
     for item in items:
@@ -33,6 +33,9 @@ async def _fetch_page_items(ctx: PipelineContext, qid: int, current, items: list
         delivered_label=media_label(media)
         if strict_hindi and explicit_non_hindi(delivered_label):
             await ctx.db.log(f"Rejected delivered non-Hindi file for {item['quality']}: {delivered_label[:180]}","WARNING",qid)
+            continue
+        if delivered_label and not title_matches(movie, delivered_label):
+            await ctx.db.log(f"Rejected delivered wrong-title/sequel file for {movie}: {delivered_label[:180]}","WARNING",qid)
             continue
         fetched.append({
             "quality": item["quality"], "season": item.get("season"), "episode": item.get("episode"),
@@ -73,7 +76,7 @@ async def run(ctx: PipelineContext, qid: int, movie: str, content_type: str = "m
         if any(item.get("is_series") for item in page_matches):
             series_mode = True
         if page_matches:
-            await _fetch_page_items(ctx, qid, current, page_matches, prefetched, fetched_keys, strict_hindi=(language != "any"))
+            await _fetch_page_items(ctx, qid, current, page_matches, prefetched, fetched_keys, strict_hindi=(language != "any"), movie=movie)
         matches = parse_results(pages, desired, allow_non_hindi=(language == "any"), title_query=movie, content_type=content_type)
         found = {item["quality"] for item in matches}
         progress = (

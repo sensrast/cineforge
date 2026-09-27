@@ -3,13 +3,14 @@ import json
 from datetime import datetime,timezone
 from pipeline.context import PipelineContext
 from pipeline.stages.common import latest_id,newest_after
-from utils.text_parser import explicit_non_hindi,media_label
+from utils.text_parser import explicit_non_hindi,media_label,title_matches
 async def run(ctx:PipelineContext,qid:int,files:list[dict])->list[dict]:
  state=await ctx.db.state(qid)
  existing=json.loads(state['fetched_files_json'] or '[]') if state else []
  if existing:return existing
  out=[];chat=ctx.cfg.source_bot
  strict_hindi=(await ctx.db.setting('language_filter',ctx.cfg.language_filter)).strip().lower()!='any'
+ queue_row=await ctx.db.db.fetchone('SELECT movie_name FROM queue WHERE id=?',(qid,));movie=queue_row['movie_name']
  for f in files:
   message=await ctx.client.get_messages(chat,f['source_message_id']); before=await latest_id(ctx.client,chat)
   clicked=False
@@ -25,6 +26,9 @@ async def run(ctx:PipelineContext,qid:int,files:list[dict])->list[dict]:
   delivered_label=media_label(media)
   if strict_hindi and explicit_non_hindi(delivered_label):
    await ctx.db.log(f"Rejected delivered non-Hindi file for {f['quality']}: {delivered_label[:180]}",'WARNING',qid)
+   continue
+  if delivered_label and not title_matches(movie,delivered_label):
+   await ctx.db.log(f"Rejected delivered wrong-title/sequel file for {movie}: {delivered_label[:180]}",'WARNING',qid)
    continue
   out.append({'quality':f['quality'],'source_message_id':media.id,'received_at':datetime.now(timezone.utc).isoformat(),'source_name':delivered_label or f.get('source_name','')})
   await ctx.speed.delay()
