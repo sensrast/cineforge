@@ -9,7 +9,7 @@ class ParserTests(unittest.TestCase):
   self.assertEqual(found[1]['button_text'],'Download 2 : 2.86 GB')
  def test_page_level_hindi_context_applies_to_all_blocks(self):
   text=('Name:\nFilm Hindi 720p WebRip\nSize: 1 GB\nClick Download 1\n'
-        'Name:\nFilm 480p WebRip\nSize: 500 MB\nClick Download 2')
+        'Name:\nFilm 480pHEVC WebRip\nSize: 500 MB\nClick Download 2')
   buttons=[{'text':'Download 1 : 1 GB'},{'text':'Download 2 : 500 MB'}]
   found=parse_results([{'id':11,'text':text,'buttons':buttons}],{'480p','720p'})
   self.assertEqual({item['quality'] for item in found},{'480p','720p'})

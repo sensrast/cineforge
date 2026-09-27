@@ -72,8 +72,8 @@ class Orchestrator:
 
             if resume_at <= 5:
                 stage = 5
-                await self.ctx.db.set_stage(qid, stage, "waiting_for_owner_join")
-                await stage_5_promote.promote_after_join(
+                await self.ctx.db.set_stage(qid, stage, "assigning_channel_admins")
+                await stage_5_promote.prepare_channel(
                     self.ctx, qid, channel["channel_id"], self.ctx.cfg.channel_name.format(movie=movie)
                 )
 

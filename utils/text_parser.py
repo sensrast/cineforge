@@ -2,13 +2,15 @@
 from __future__ import annotations
 import re
 from typing import Any
-QUALITY_RE = re.compile(r"(?i)(?<!\d)(480p|720p|1080p|2160p|4k|ds4k)(?!\w)")
+# Telegram filenames often concatenate tags (for example 480pHEVC), so a
+# trailing word boundary would incorrectly miss the quality.
+QUALITY_RE = re.compile(r"(?i)(480\s*p|720\s*p|1080\s*p|2160\s*p|ds4k|4k)")
 SIZE_RE = re.compile(r"(?i)(\d+(?:\.\d+)?)\s*(KB|MB|GB|TB)")
 LANG_RE = re.compile(r"(?i)\b(hindi|dual[ ._-]*audio)\b|हिंदी")
 BATCH_RE = re.compile(r"https?://t\.me/[A-Za-z0-9_]+\?start=[A-Za-z0-9_-]+")
 
 def normalize_quality(q: str) -> str:
-    q = q.lower()
+    q = re.sub(r"\s+", "", q.lower())
     return {"4k": "2160p", "ds4k": "2160p"}.get(q, q)
 
 def size_mb(text: str) -> float:
