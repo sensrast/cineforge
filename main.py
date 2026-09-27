@@ -110,8 +110,16 @@ async def run():
     runtime = UserbotRuntime(settings, queries, health_app)
     login = LoginManager(queries, settings, runtime.start)
     control = build_control_bot(settings.control_token, queries, settings.owner_id, settings, runtime, login)
-    await control.initialize(); await control.start(); await control.updater.start_polling(drop_pending_updates=False)
-    health_app["control_bot"] = True
+    while True:
+        try:
+            await control.initialize(); await control.start(); await control.updater.start_polling(drop_pending_updates=False)
+            health_app["control_bot"] = True
+            break
+        except Exception:
+            log.exception("Control bot connection failed; retrying in 10 seconds")
+            try: await control.shutdown()
+            except Exception: pass
+            await asyncio.sleep(10)
 
     session = await queries.setting("userbot_session_string", settings.session_string)
     if session:
