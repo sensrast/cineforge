@@ -7,7 +7,7 @@ from pyrogram.enums import ChatMemberStatus
 from pyrogram.handlers import ChatMemberUpdatedHandler
 from pyrogram.types import ChatPrivileges
 from pipeline.context import PipelineContext
-from utils.notifications import notify_control_bot
+from utils.notifications import notify_control_bot, get_control_bot_identity
 log = logging.getLogger(__name__)
 
 OWNER_PRIVILEGES = ChatPrivileges(
@@ -34,6 +34,22 @@ async def add_filestore_admin(ctx: PipelineContext, qid: int, channel_id: int) -
         if "already" not in str(exc).lower() and "admin" not in str(exc).lower():
             raise RuntimeError(f"Could not add @{ctx.cfg.filestore_bot} as channel administrator: {exc}") from exc
     await ctx.db.log("File-store bot added directly as administrator", "INFO", qid)
+
+async def add_control_bot_admin(ctx: PipelineContext, qid: int, channel_id: int) -> None:
+    """Add the private control bot as admin so it can post URL keyboards."""
+    identity = await get_control_bot_identity(ctx.cfg.control_token)
+    username = identity.get("username")
+    if not username:
+        raise RuntimeError("Control bot has no username and cannot be resolved by the userbot")
+    bot = await ctx.speed.call(lambda: ctx.client.get_users(username), qid)
+    try:
+        await ctx.speed.call(
+            lambda: ctx.client.promote_chat_member(channel_id, bot.id, FILESTORE_PRIVILEGES), qid,
+        )
+    except Exception as exc:
+        if "already" not in str(exc).lower() and "admin" not in str(exc).lower():
+            raise RuntimeError(f"Could not add @{username} as channel administrator: {exc}") from exc
+    await ctx.db.log("Control bot added as administrator for inline-button posts", "INFO", qid)
 
 async def _find_owner(ctx: PipelineContext, channel_id: int):
     """Find the owner in channel participants and populate Pyrogram's peer cache."""
@@ -88,6 +104,7 @@ async def _owner_watcher(ctx: PipelineContext, qid: int, channel_id: int, title:
 async def prepare_channel(ctx: PipelineContext, qid: int, channel_id: int, title: str) -> None:
     """Add the file-store bot and launch owner promotion without waiting."""
     await add_filestore_admin(ctx, qid, channel_id)
+    await add_control_bot_admin(ctx, qid, channel_id)
     task = asyncio.create_task(
         _owner_watcher(ctx, qid, channel_id, title),
         name=f"owner-promotion-{qid}",

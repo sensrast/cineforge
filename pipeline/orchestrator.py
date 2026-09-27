@@ -101,7 +101,18 @@ class Orchestrator:
             if resume_at <= 9:
                 stage = 9
                 await self.ctx.db.set_stage(qid, stage, "posting")
-                await stage_9_post.run(self.ctx, qid, movie, channel["channel_id"], [item["quality"] for item in copied], batch_short)
+                await stage_9_post.run(self.ctx, qid, movie, channel["channel_id"], copied, batch_short)
+
+            # Jobs that previously failed in cataloging may have a legacy
+            # userbot-authored post without a working inline keyboard. Repair
+            # Stage 9 with the control bot before retrying Stage 10.
+            if resume_at == 10:
+                await stage_5_promote.add_control_bot_admin(
+                    self.ctx, qid, channel["channel_id"]
+                )
+                await stage_9_post.run(
+                    self.ctx, qid, movie, channel["channel_id"], copied, batch_short
+                )
 
             if (await self.ctx.db.setting("auto_catalog", "true")).lower() == "true" and resume_at <= 10:
                 stage = 10

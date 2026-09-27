@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import re
 import time
+from pathlib import Path
 from pipeline.context import PipelineContext
 from pipeline.stages.common import click_matching
 from utils.text_parser import clean_title, is_series
@@ -84,18 +85,16 @@ async def run(ctx: PipelineContext, qid: int, movie: str, invite: str, source_me
 
     message = await _send_and_wait(ctx, qid, clean_title(movie))
 
-    # Reuse Telegram's cached thumbnail by file_id; no movie is downloaded.
-    source = await ctx.client.get_messages(ctx.cfg.source_bot, source_message_id)
-    thumbs = (source.video.thumbs if source.video else source.document.thumbs if source.document else None) or []
-    if thumbs:
-        before = await _snapshot(ctx)
-        await ctx.speed.delay()
-        await ctx.speed.call(lambda: ctx.client.send_photo(chat, thumbs[-1].file_id), qid)
-        message = await _wait_changed(ctx, before)
-    elif message.reply_markup:
-        message = await _click_and_wait(ctx, qid, message, [r"skip", r"⏩"])
-    else:
-        raise RuntimeError("Catalog requires an image, but no reusable Telegram thumbnail exists")
+    # A video THUMBNAIL file_id cannot be sent as a PHOTO file_id. Upload a
+    # small bundled generic catalog poster instead. This never downloads movie
+    # media or its thumbnail from Telegram.
+    poster = Path(__file__).resolve().parents[2] / "assets" / "catalog_poster.jpg"
+    if not poster.exists():
+        raise RuntimeError("Bundled catalog poster is missing")
+    before = await _snapshot(ctx)
+    await ctx.speed.delay()
+    await ctx.speed.call(lambda: ctx.client.send_photo(chat, str(poster)), qid)
+    message = await _wait_changed(ctx, before)
 
     if message.reply_markup and _message_has_button(message, [r"skip", r"⏩"]):
         message = await _click_and_wait(ctx, qid, message, [r"skip", r"⏩"])
