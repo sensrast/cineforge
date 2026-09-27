@@ -30,15 +30,12 @@ def parse_results(messages: list[dict[str, Any]], desired: set[str], allow_non_h
         full_text = message.get("text", "") or ""
         all_buttons = message.get("buttons", [])
         blocks = _blocks(full_text)
-        # Some Movie Hunt layouts print "Hindi" once in a page heading rather
-        # than repeating it in every Name block. Treat only that heading as
-        # shared language context; do not let one Hindi result mark mixed
-        # language blocks as Hindi.
-        name_match = re.search(r"(?i)\bName\s*:", full_text)
-        page_header = full_text[:name_match.start()] if name_match else ""
-        header_is_hindi = bool(LANG_RE.search(page_header))
+        # Movie Hunt commonly prints the language once for the entire result
+        # page (sometimes above, between, or below Name blocks). If the page is
+        # identified as Hindi/Dual Audio, apply that context to every file block.
+        page_is_hindi = bool(LANG_RE.search(full_text))
         for block in blocks:
-            if not allow_non_hindi and not (LANG_RE.search(block) or header_is_hindi):
+            if not allow_non_hindi and not (LANG_RE.search(block) or page_is_hindi):
                 continue
             quality_match = QUALITY_RE.search(block)
             if not quality_match:

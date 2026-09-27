@@ -4,8 +4,9 @@ import asyncio
 import json
 import logging
 from pipeline.context import PipelineContext
+from utils.notifications import notify_control_bot
 from pipeline.stages import (
-    stage_1_search, stage_2_filter, stage_3_fetch, stage_4_channel,
+    stage_1_search, stage_2_filter, stage_3_fetch, stage_4_channel, stage_5_promote,
     stage_6_copy, stage_7_batch, stage_8_shorten, stage_9_post,
     stage_10_catalog,
 )
@@ -69,8 +70,13 @@ class Orchestrator:
             else:
                 channel = {"channel_id": state["channel_id"], "invite_link": state["invite_link"]}
 
-            # Stage 5 is an event handler. It remains active globally while the
-            # content pipeline proceeds without requiring a second account.
+            if resume_at <= 5:
+                stage = 5
+                await self.ctx.db.set_stage(qid, stage, "waiting_for_owner_join")
+                await stage_5_promote.promote_after_join(
+                    self.ctx, qid, channel["channel_id"], self.ctx.cfg.channel_name.format(movie=movie)
+                )
+
             if resume_at <= 6:
                 stage = 6
                 await self.ctx.db.set_stage(qid, stage, "copying")
@@ -104,7 +110,7 @@ class Orchestrator:
 
             await self.ctx.db.complete(qid)
             await self.ctx.db.log(f"Completed {movie}", "INFO", qid)
-            await self.ctx.client.send_message(self.ctx.cfg.owner_id, f'✅ Completed: **{movie}**\n{channel["invite_link"]}')
+            await notify_control_bot(self.ctx.cfg.control_token, self.ctx.cfg.owner_id, f'✅ Completed: {movie}\n{channel["invite_link"]}')
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -112,6 +118,6 @@ class Orchestrator:
             await self.ctx.db.fail(qid, str(exc))
             await self.ctx.db.log(str(exc), "ERROR", qid)
             try:
-                await self.ctx.client.send_message(self.ctx.cfg.owner_id, f"❌ Failed: **{movie}**\nStage {stage}/10\n`{str(exc)[:700]}`")
+                await notify_control_bot(self.ctx.cfg.control_token, self.ctx.cfg.owner_id, f"❌ Failed: {movie}\nStage {stage}/10\n{str(exc)[:700]}")
             except Exception:
                 pass
