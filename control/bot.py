@@ -15,6 +15,6 @@ def build_control_bot(token: str, db, owner_id: int, cfg, runtime, login) -> App
     ]
     for command, callback in commands:
         app.add_handler(CommandHandler(command, own(callback)))
-    app.add_handler(CallbackQueryHandler(own(handlers.callback), pattern=r"^(auth|nav|cfg):"))
+    app.add_handler(CallbackQueryHandler(own(handlers.callback), pattern=r"^(auth|nav|cfg|job):"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, own(handlers.text)))
     return app

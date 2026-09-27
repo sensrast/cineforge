@@ -107,5 +107,13 @@ def confirmation_keyboard(confirm_callback: str, back_callback: str) -> InlineKe
         [InlineKeyboardButton("⬅️ No, go back", callback_data=back_callback)],
     ])
 
+def status_keyboard(rows) -> InlineKeyboardMarkup:
+    buttons = []
+    for row in rows:
+        if row['status'] == 'failed':
+            buttons.append([InlineKeyboardButton(f"🔄 Retry #{row['id']} — {_short(row['movie_name'], 24)}", callback_data=f"job:retry:{row['id']}")])
+    buttons += [[InlineKeyboardButton("🔄 Refresh Status", callback_data="nav:status")], [InlineKeyboardButton("⬅️ Back to Home", callback_data="nav:home")]]
+    return InlineKeyboardMarkup(buttons)
+
 def back_home_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Home", callback_data="nav:home")]])

@@ -25,5 +25,6 @@ async def click_matching(message:Message,patterns:list[str])->bool:
  for row_i,row in enumerate(markup.inline_keyboard):
   for col_i,b in enumerate(row):
    if any(re.search(p,b.text or '',re.I) or re.search(p,str(b.callback_data or ''),re.I) for p in patterns):
-    await message.click(row_i,col_i);return True
+            # Pyrogram coordinates are x=column, y=row.
+            await message.click(col_i, row_i);return True
  return False

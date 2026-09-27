@@ -11,7 +11,8 @@ async def run(ctx:PipelineContext,qid:int,files:list[dict])->list[dict]:
    for ri,row in enumerate(message.reply_markup.inline_keyboard):
     for ci,b in enumerate(row):
      if (b.text or '')==f['button_text']:
-      await ctx.speed.call(lambda m=message,r=ri,c=ci:m.click(r,c),qid);clicked=True;break
+      # Pyrogram coordinates are x=column, y=row.
+      await ctx.speed.call(lambda m=message,r=ri,c=ci:m.click(c,r),qid);clicked=True;break
     if clicked:break
   if not clicked:raise RuntimeError(f"Download button disappeared for {f['quality']}")
   media=await newest_after(ctx.client,chat,before,max(60,ctx.cfg.flow_timeout),lambda m:bool(m.video or m.document))

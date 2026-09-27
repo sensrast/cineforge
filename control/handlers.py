@@ -6,7 +6,7 @@ from telegram.ext import ContextTypes
 from control.keyboards import (
     SETTING_DEFS, CATEGORIES, display_value, home_keyboard, settings_root_keyboard,
     category_keyboard, field_keyboard, input_cancel_keyboard, confirmation_keyboard,
-    back_home_keyboard,
+    back_home_keyboard, status_keyboard,
 )
 
 CFG_ATTRS = {
@@ -211,10 +211,16 @@ class ControlHandlers:
     async def status_text(self) -> str:
         rows = await self.db.queue_list(); today = await self.db.count_today(); paused = await self.db.setting("pipeline_paused", "false")
         lines = [f'📊 Live Status', f'Pipeline: {"PAUSED" if paused == "true" else "RUNNING"}', f'Userbot: {"CONNECTED" if self.runtime.running else "LOGIN REQUIRED"}', f"Channels today: {today}", f"Active queue: {len(rows)}", ""]
-        lines += [f"• #{r['id']} {r['movie_name']} — stage {r['current_stage']}/10 ({r['status']})" for r in rows[:15]]
+        for row in rows[:15]:
+            line = f"• #{row['id']} {row['movie_name']} — stage {row['current_stage']}/10 ({row['status']})"
+            if row['status'] == 'failed' and row['error_message']:
+                line += f"\n  Error: {row['error_message'][:180]}"
+            lines.append(line)
         return "\n".join(lines)
 
-    async def status(self, update, context): await update.message.reply_text(await self.status_text(), reply_markup=back_home_keyboard())
+    async def status(self, update, context):
+        rows = await self.db.queue_list()
+        await update.message.reply_text(await self.status_text(), reply_markup=status_keyboard(rows))
     async def settings(self, update, context): await self._settings_root(message=update.message)
     async def toggle_limits(self, update, context):
         old = await self.db.setting("limits_enabled", "false"); new = "false" if old == "true" else "true"
@@ -229,7 +235,9 @@ class ControlHandlers:
                 await self.login.abort(self.owner_id); return await self._home(query)
             if data == "nav:settings": return await self._settings_root(query=query)
             if data.startswith("nav:cat:"): return await self._category(query, data.split(":", 2)[2])
-            if data == "nav:status": return await self._edit(query, await self.status_text(), back_home_keyboard())
+            if data == "nav:status":
+                rows = await self.db.queue_list()
+                return await self._edit(query, await self.status_text(), status_keyboard(rows))
             if data == "nav:logs":
                 rows = await self.db.recent_logs(15); text = "📝 Recent Logs\n\n" + ("\n".join(f"[{r['level']}] #{r['queue_id'] or '-'} {r['message']}" for r in rows) or "No logs yet.")
                 return await self._edit(query, text[:3900], back_home_keyboard())
@@ -245,6 +253,11 @@ class ControlHandlers:
         if data == "auth:logout_do":
             await self.runtime.stop(); await self.db.delete_setting("userbot_session_string"); self.cfg.session_string = ""
             return await self._edit(query, "✅ Userbot logged out and the saved session was removed.", back_home_keyboard())
+        if data.startswith("job:retry:"):
+            queue_id = int(data.rsplit(":", 1)[1])
+            await self.db.db.execute("UPDATE queue SET status='pending',error_message=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='failed'", (queue_id,))
+            rows = await self.db.queue_list()
+            return await self._edit(query, "✅ Job requeued.\n\n" + await self.status_text(), status_keyboard(rows))
         if data.startswith("cfg:"):
             parts = data.split(":"); action = parts[1]; key = parts[2]
             if action == "toggle":
