@@ -81,8 +81,8 @@ async def run(ctx:PipelineContext,qid:int,movie:str,channel_id:int,invite_link:s
         button=await ctx.db.setting("promotion_button_text","Click here to start and get Movie")
         post_id=int(state["promotion_post_id"] or 0) if state else 0
         if not post_id:
-            result=await bot_api_request(ctx.cfg.control_token,"sendPhoto",{
-                "chat_id":updates,"photo":image,"caption":caption,
+            result=await bot_api_request(ctx.cfg.control_token,"sendMessage",{
+                "chat_id":updates,"text":caption,"disable_web_page_preview":True,
                 "reply_markup":{"inline_keyboard":[[{"text":button,"url":generated}],[{"text":button,"url":generated}]]},
             })
             post_id=int(result["message_id"])

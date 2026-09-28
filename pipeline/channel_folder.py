@@ -1,8 +1,11 @@
 """Maintain a Telegram dialog folder containing CineForge-created channels."""
 from __future__ import annotations
 from pyrogram.raw.functions.messages import GetDialogFilters,UpdateDialogFilter
-from pyrogram.raw.types import DialogFilter
+from pyrogram.raw.functions.chatlists import ExportChatlistInvite,EditExportedInvite,GetExportedInvites
+from pyrogram.raw.types import DialogFilter,InputChatlistDialogFilter
 from pipeline.context import PipelineContext
+from utils.github_store import persist_state
+from utils.notifications import notify_control_bot
 
 def _peer_key(peer):
     for name in ("channel_id","chat_id","user_id"):
@@ -41,7 +44,28 @@ async def ensure_created_channels_folder(ctx:PipelineContext,channel_ids:list[in
             emoticon=getattr(existing,"emoticon",None),
         )
         await ctx.speed.call(lambda:ctx.client.invoke(UpdateDialogFilter(id=filter_id,filter=updated)),qid)
-        await ctx.db.log(f"Updated Telegram folder '{title}' with {len(included)+len(pinned)} created channels","INFO",qid)
+
+        # Keep a shareable Telegram chat-folder invite synchronized with the
+        # same peers. If the owner already exported this folder, update that
+        # invite; otherwise create it once and save its t.me/addlist URL.
+        chatlist=InputChatlistDialogFilter(filter_id=filter_id)
+        exported=await ctx.speed.call(lambda:ctx.client.invoke(GetExportedInvites(chatlist=chatlist)),qid)
+        peers=pinned+included
+        if getattr(exported,"invites",None):
+            invite=exported.invites[0]
+            slug=invite.url.rstrip("/").rsplit("/",1)[-1]
+            result=await ctx.speed.call(lambda:ctx.client.invoke(EditExportedInvite(chatlist=chatlist,slug=slug,title=title,peers=peers)),qid)
+            folder_url=result.url
+        else:
+            result=await ctx.speed.call(lambda:ctx.client.invoke(ExportChatlistInvite(chatlist=chatlist,title=title,peers=peers)),qid)
+            folder_url=result.invite.url
+        previous=await ctx.db.setting("created_channels_folder_link","")
+        await ctx.db.set_setting("created_channels_folder_link",folder_url)
+        await persist_state(ctx.db)
+        if folder_url!=previous:
+            try:await notify_control_bot(ctx.cfg.control_token,ctx.cfg.owner_id,f"📁 Created-channels folder link:\n{folder_url}")
+            except Exception:pass
+        await ctx.db.log(f"Updated shareable Telegram folder '{title}' with {len(peers)} channels: {folder_url}","INFO",qid)
         return True
     except Exception as exc:
         await ctx.db.log(f"Created-channels folder update failed: {exc}","WARNING",qid)
