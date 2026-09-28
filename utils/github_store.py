@@ -41,6 +41,12 @@ async def persist_state(db) -> bool:
         channel_rows = await db.db.fetchall("SELECT movie_name,content_type,channel_id,invite_link,batch_link,shortened_link FROM created_channels")
         local_settings = {row["key"]: row["value"] for row in settings_rows}
         local_channels = [dict(row) for row in channel_rows]
+        queue_rows=await db.db.fetchall("SELECT * FROM queue WHERE status NOT IN ('completed','cancelled') ORDER BY id")
+        active_queue=[dict(row) for row in queue_rows]
+        pipeline=[]
+        for row in queue_rows:
+            state_row=await db.db.fetchone("SELECT * FROM pipeline_state WHERE queue_id=?",(row["id"],))
+            if state_row:pipeline.append(dict(state_row))
         async with aiohttp.ClientSession(headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as session:
             for attempt in range(3):
                 sha = None; remote_settings = {}
@@ -57,7 +63,7 @@ async def persist_state(db) -> bool:
                 # Never erase a durable setting merely because a fresh local
                 # SQLite database did not contain that key. Local values win.
                 merged_settings=dict(remote_settings);merged_settings.update(local_settings)
-                state={"version":2,"settings":merged_settings,"channels":local_channels}
+                state={"version":3,"settings":merged_settings,"channels":local_channels,"queue":active_queue,"pipeline":pipeline}
                 content=base64.b64encode(json.dumps(state,ensure_ascii=False,separators=(",", ":")).encode()).decode()
                 payload={"message":"Update CineForge runtime state","content":content}
                 if sha:payload["sha"]=sha

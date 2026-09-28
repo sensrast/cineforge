@@ -188,6 +188,7 @@ class Orchestrator:
             if stage==4:
                 await self.ctx.db.set_setting("channel_creation_cooldown_until",str(int(time.time())+exc.seconds))
             await self.ctx.db.log(reason,"WARNING",qid)
+            await persist_state(self.ctx.db)
             try:
                 hours,remainder=divmod(exc.seconds,3600);minutes,seconds=divmod(remainder,60)
                 duration=(f"{hours}h {minutes}m" if hours else f"{minutes}m {seconds}s")
@@ -195,7 +196,7 @@ class Orchestrator:
                     f"⏳ Telegram cooldown: {movie}\nStage {stage}/10 deferred for {duration}.\nThe worker will continue with other batch items and retry this movie automatically.")
             except Exception:pass
         except JobCancelled as exc:
-            await self.ctx.db.log(str(exc),"INFO",qid)
+            await self.ctx.db.log(str(exc),"INFO",qid);await persist_state(self.ctx.db)
             try:await notify_control_bot(self.ctx.cfg.control_token,self.ctx.cfg.owner_id,f"🛑 Cancelled: {movie}")
             except Exception:pass
         except asyncio.CancelledError:
@@ -204,6 +205,7 @@ class Orchestrator:
             log.exception("Pipeline failed for %s", movie)
             await self.ctx.db.fail(qid, str(exc))
             await self.ctx.db.log(str(exc), "ERROR", qid)
+            await persist_state(self.ctx.db)
             try:
                 await notify_control_bot(self.ctx.cfg.control_token, self.ctx.cfg.owner_id, f"❌ Failed: {movie}\nStage {stage}/10\n{str(exc)[:700]}")
             except Exception:

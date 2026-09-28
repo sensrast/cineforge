@@ -99,6 +99,15 @@ async def restore_render_state(queries: Queries) -> bool:
             saved = json.loads(os.getenv("CINEFORGE_SETTINGS_JSON", "{}"))
         for key, value in saved.items():
             await queries.set_setting(str(key), str(value))
+        async def restore_rows(table:str,items:list[dict]):
+            columns={row[1] for row in await queries.db.fetchall(f"PRAGMA table_info({table})")}
+            for item in items:
+                values={key:value for key,value in item.items() if key in columns}
+                if not values:continue
+                names=list(values);marks=','.join('?' for _ in names)
+                await queries.db.execute(f"INSERT OR IGNORE INTO {table}({','.join(names)}) VALUES({marks})",tuple(values[name] for name in names))
+        await restore_rows("queue",state.get("queue",[]))
+        await restore_rows("pipeline_state",state.get("pipeline",[]))
         for item in state.get("channels", []):
             await queries.db.execute(
                 "INSERT OR IGNORE INTO created_channels(movie_name,content_type,channel_id,invite_link,batch_link,shortened_link) VALUES(?,?,?,?,?,?)",

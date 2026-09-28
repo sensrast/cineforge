@@ -130,17 +130,17 @@ class ControlHandlers:
     async def movie(self, update, context):
         name=" ".join(context.args).strip()
         if not name:return await update.message.reply_text("Usage: /movie <title>")
-        qid=await self.db.add_movie(name,self.owner_id,"movie");await update.message.reply_text(f"✅ Movie queued #{qid}: {name}")
+        qid=await self.db.add_movie(name,self.owner_id,"movie");await persist_state(self.db);await update.message.reply_text(f"✅ Movie queued #{qid}: {name}")
 
     async def series(self, update, context):
         name=" ".join(context.args).strip()
         if not name:return await update.message.reply_text("Usage: /series <title>")
-        qid=await self.db.add_movie(name,self.owner_id,"series");await update.message.reply_text(f"✅ Series queued #{qid}: {name}")
+        qid=await self.db.add_movie(name,self.owner_id,"series");await persist_state(self.db);await update.message.reply_text(f"✅ Series queued #{qid}: {name}")
 
     async def rebuild(self, update, context):
         name=" ".join(context.args).strip()
         if not name:return await update.message.reply_text("Usage: /rebuild <movie title>")
-        qid=await self.db.add_movie(name,self.owner_id,"movie",force_rebuild=True)
+        qid=await self.db.add_movie(name,self.owner_id,"movie",force_rebuild=True);await persist_state(self.db)
         await update.message.reply_text(f"🔄 Forced clean movie rebuild queued #{qid}: {name}")
 
     async def batch(self, update, context):
@@ -190,7 +190,7 @@ class ControlHandlers:
         if mode in {"batch", "single_typed"}:
             kind=context.user_data.get("content_type","movie")
             names=[line.strip() for line in text.splitlines() if line.strip()] if mode=="batch" else [text]
-            context.user_data.clear();ids=[await self.db.add_movie(name,self.owner_id,kind) for name in names]
+            context.user_data.clear();ids=[await self.db.add_movie(name,self.owner_id,kind) for name in names];await persist_state(self.db)
             return await update.message.reply_text(f"✅ Queued {len(ids)} {kind} title(s): "+", ".join(map(str,ids)),reply_markup=home_keyboard(self.runtime.running))
         context.user_data["pending_title"]=text
         await update.message.reply_text(f"Is this a movie or series?\n\n{text}",reply_markup=content_type_keyboard("type"))
@@ -265,7 +265,7 @@ class ControlHandlers:
         if data.startswith("type:"):
             kind=data.split(":",1)[1];title=context.user_data.pop("pending_title","")
             if not title:return await self._edit(query,"The pending title expired. Send it again.",home_keyboard(self.runtime.running))
-            qid=await self.db.add_movie(title,self.owner_id,kind);context.user_data.clear()
+            qid=await self.db.add_movie(title,self.owner_id,kind);await persist_state(self.db);context.user_data.clear()
             return await self._edit(query,f"✅ {kind.title()} queued #{qid}: {title}",home_keyboard(self.runtime.running))
         if data.startswith("nav:"):
             self._clear_input(context)
@@ -293,12 +293,12 @@ class ControlHandlers:
             return await self._edit(query, "✅ Userbot logged out and the saved session was removed.", back_home_keyboard())
         if data.startswith("job:retry:"):
             queue_id = int(data.rsplit(":", 1)[1])
-            await self.db.retry_failed(queue_id)
+            await self.db.retry_failed(queue_id);await persist_state(self.db)
             rows = await self.db.queue_list()
             return await self._edit(query, "✅ Job requeued.\n\n" + await self.status_text(), status_keyboard(rows))
         if data.startswith("job:cancel:"):
             queue_id=int(data.rsplit(":",1)[1])
-            changed=await self.db.db.execute("UPDATE queue SET status='cancelled',updated_at=CURRENT_TIMESTAMP WHERE id=? AND status NOT IN ('completed','cancelled')",(queue_id,))
+            changed=await self.db.db.execute("UPDATE queue SET status='cancelled',updated_at=CURRENT_TIMESTAMP WHERE id=? AND status NOT IN ('completed','cancelled')",(queue_id,));await persist_state(self.db)
             rows=await self.db.queue_list()
             return await self._edit(query,f"🛑 Cancellation requested for job #{queue_id}. The active operation will stop at its next checkpoint.\n\n"+await self.status_text(),status_keyboard(rows))
         if data.startswith("cfg:"):
@@ -353,7 +353,7 @@ class ControlHandlers:
         await update.message.reply_text("▶️ Pipeline resumed.",reply_markup=back_home_keyboard())
     async def cancel(self, update, context):
         if not context.args: return await update.message.reply_text("Usage: /cancel <queue_id>", reply_markup=back_home_keyboard())
-        qid=int(context.args[0]);await self.db.db.execute("UPDATE queue SET status='cancelled',updated_at=CURRENT_TIMESTAMP WHERE id=? AND status NOT IN ('completed','cancelled')",(qid,));await update.message.reply_text(f"🛑 Cancellation requested for job #{qid}. Active work will stop at its next checkpoint.",reply_markup=back_home_keyboard())
+        qid=int(context.args[0]);await self.db.db.execute("UPDATE queue SET status='cancelled',updated_at=CURRENT_TIMESTAMP WHERE id=? AND status NOT IN ('completed','cancelled')",(qid,));await persist_state(self.db);await update.message.reply_text(f"🛑 Cancellation requested for job #{qid}. Active work will stop at its next checkpoint.",reply_markup=back_home_keyboard())
     async def retry(self, update, context):
         if not context.args: return await update.message.reply_text("Usage: /retry <queue_id>", reply_markup=back_home_keyboard())
-        await self.db.retry_failed(int(context.args[0]));await update.message.reply_text("Requeued if failed. Search/fetch failures restart cleanly from page 1.",reply_markup=back_home_keyboard())
+        await self.db.retry_failed(int(context.args[0]));await persist_state(self.db);await update.message.reply_text("Requeued if failed. Search/fetch failures restart cleanly from page 1.",reply_markup=back_home_keyboard())
