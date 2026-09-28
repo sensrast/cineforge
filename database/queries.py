@@ -14,6 +14,15 @@ class Queries:
  async def set_stage(self,qid:int,stage:int,status:str): await self.db.execute("UPDATE queue SET current_stage=?,status=?,updated_at=CURRENT_TIMESTAMP,error_message=NULL WHERE id=?",(stage,status,qid))
  async def fail(self,qid:int,error:str): await self.db.execute("UPDATE queue SET status='failed',error_message=?,retry_count=retry_count+1,updated_at=CURRENT_TIMESTAMP WHERE id=?",(error[:1000],qid))
  async def complete(self,qid:int): await self.db.execute("UPDATE queue SET status='completed',current_stage=10,updated_at=CURRENT_TIMESTAMP WHERE id=?",(qid,))
+ async def retry_failed(self,qid:int):
+  row=await self.db.fetchone("SELECT current_stage FROM queue WHERE id=? AND status='failed'",(qid,))
+  if not row:return False
+  if int(row['current_stage'] or 0)<=3:
+   await self.db.execute("UPDATE pipeline_state SET source_messages_json='[]',filtered_files_json='[]',fetched_files_json='[]' WHERE queue_id=?",(qid,))
+   await self.db.execute("UPDATE queue SET status='pending',current_stage=0,error_message=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?",(qid,))
+  else:
+   await self.db.execute("UPDATE queue SET status='pending',error_message=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?",(qid,))
+  return True
  async def state(self,qid:int): return await self.db.fetchone("SELECT * FROM pipeline_state WHERE queue_id=?",(qid,))
  async def patch_state(self,qid:int,**values:Any):
   allowed={'source_messages_json','filtered_files_json','fetched_files_json','channel_id','invite_link','owner_promoted','forwarded_message_ids_json','batch_link','shortened_link','final_post_id','catalog_added','backup_done','backup_message_ids_json'}
