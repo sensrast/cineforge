@@ -19,14 +19,18 @@ def normalize_quality(q: str) -> str:
     q = re.sub(r"\s+", "", q.lower())
     return {"4k": "2160p", "ds4k": "2160p"}.get(q, q)
 
+def _release_words(text:str)->str:
+    """Turn filename separators into spaces before tag recognition."""
+    return re.sub(r"[._]+"," ",text or "")
+
 def explicit_hindi(text: str) -> bool:
     """True only when the delivered filename/caption positively names Hindi."""
-    return bool(LANG_RE.search(text or ""))
+    return bool(LANG_RE.search(_release_words(text)))
 
 def explicit_non_hindi(text: str) -> bool:
     """True when a filename/caption names another language without Hindi."""
-    text=text or ""
-    return bool(OTHER_LANG_RE.search(text)) and not explicit_hindi(text)
+    cleaned=_release_words(text)
+    return bool(OTHER_LANG_RE.search(cleaned)) and not explicit_hindi(cleaned)
 
 def media_label(message: Any) -> str:
     """Combine the delivered media filename and caption for validation."""
@@ -56,6 +60,7 @@ def normalize_title(text: str) -> str:
     # Ignore release-group/site decorations wrapped around a delivered name.
     text=re.sub(r"^\s*(?:\[[^\]]+\]\s*)+","",text or "")
     text=re.sub(r"(?i)\b(?:https?://)?(?:www\.)?[a-z0-9-]+\.(?:com|net|org|in)\b"," ",text)
+    text=_release_words(text)
     # Everything after the first year or quality is release metadata, not title.
     boundary=re.search(r"(?i)\b(?:19|20)\d{2}\b|\b(?:480\s*p|720\s*p|1080\s*p|2160\s*p|ds4k|4k)",text)
     if boundary:text=text[:boundary.start()]
@@ -105,7 +110,7 @@ def parse_results(messages: list[dict[str, Any]], desired: set[str], allow_non_h
         # Movie Hunt commonly prints the language once for the entire result
         # page (sometimes above, between, or below Name blocks). If the page is
         # identified as Hindi/Dual Audio, apply that context to every file block.
-        page_is_hindi = bool(LANG_RE.search(full_text))
+        page_is_hindi = explicit_hindi(full_text)
         for block in blocks:
             language_rank=1
             if not allow_non_hindi:

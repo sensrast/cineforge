@@ -24,6 +24,7 @@ class ParserTests(unittest.TestCase):
   self.assertFalse(title_matches('Pushpa','Pushpa 2 The Rule 2024 Hindi 1080p'))
   self.assertTrue(title_matches('Pushpa 2','Pushpa 2 The Rule 2024 Hindi 1080p'))
   self.assertTrue(title_matches('Pushpa','Pushpa The Rise 2021 Hindi 720p'))
+  self.assertTrue(title_matches('Pushpa','Pushpa_The_Rise_2021_1080p_10bit_BluRay_x265_HEVC_Hindi_AMZN_DDP.mkv'))
   self.assertFalse(title_matches('Housefull','Housefull 5 2025 Hindi 480p.mkv'))
   self.assertFalse(title_matches('Housefull','Housefull.5A.2025.Hindi.720p.mkv'))
   self.assertFalse(title_matches('Housefull','Housefull Five Hindi 1080p.mkv'))
@@ -53,9 +54,16 @@ class ParserTests(unittest.TestCase):
   self.assertTrue(explicit_non_hindi('Pushpa The Rise KannadaHDRip 720p.mkv'))
   self.assertTrue(explicit_non_hindi('Pushpa The Rise MalayalamHDRip 1080p.mkv'))
   self.assertTrue(explicit_hindi('Pushpa HINDIWEBRip 480p.mkv'))
+  self.assertTrue(explicit_hindi('Pushpa_The_Rise_2021_1080p_Hindi_AMZN_DDP.mkv'))
   self.assertTrue(explicit_hindi('Chhaava 720p HIN AAC5.1.mkv'))
   self.assertFalse(explicit_hindi('Pushpa 1080p BluRay.mkv'))
   self.assertFalse(explicit_non_hindi('Pushpa Hindi Kannada Dual Audio 480p.mkv'))
+ def test_underscore_pushpa_page_finds_720_and_1080(self):
+  text=("Name:\nPushpa_The_Rise_2021_720p_BluRay_x264_Hindi_HE_AAC_5_1_+_Telugu.mkv\nSize: 1.80 GB\nClick Download 8\n"
+        "Name:\nPushpa_The_Rise_2021_1080p_10bit_BluRay_x265_HEVC_Hindi_AMZN_DDP.mkv\nSize: 3.87 GB\nClick Download 9")
+  buttons=[{'text':'Download 8 : 1.80 GB'},{'text':'Download 9 : 3.87 GB'}]
+  found=parse_results([{'id':42,'text':text,'buttons':buttons}],{'720p','1080p'},title_query='Pushpa',content_type='movie',all_candidates=True)
+  self.assertEqual({item['quality'] for item in found},{'720p','1080p'})
  def test_explicit_hindi_outranks_larger_unlabelled_candidate(self):
   text=('Name:\nPushpa The Rise 2021 Hindi 1080p\nSize: 2 GB\nClick Download 1\n'
         'Name:\nPushpa The Rise 2021 1080p\nSize: 5 GB\nClick Download 2\n'
