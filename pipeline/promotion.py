@@ -9,6 +9,9 @@ from utils.text_parser import format_template
 
 URL_RE=re.compile(r"https?://[^\s<>]+",re.I)
 
+def provider_caption(invite_link:str)->str:
+    return f"Channel link 🔗 👇👇\n\n{invite_link}\n{invite_link}"
+
 def _urls(message)->list[str]:
     values=URL_RE.findall((message.text or message.caption or ""))
     markup=message.reply_markup
@@ -48,9 +51,11 @@ async def run(ctx:PipelineContext,qid:int,movie:str,channel_id:int,invite_link:s
     state=await ctx.db.state(qid)
     if state and state["promotion_done"]:return int(state["promotion_post_id"] or 0) or None
     image=await ctx.db.setting("promotion_image","")
+    sticker=await ctx.db.setting("promotion_updates_sticker","")
     updates=await ctx.db.setting("promotion_updates_channel","@In_hindi_dubbed_movies")
     provider=(await ctx.db.setting("promotion_link_provider","Link_providerobot")).lstrip("@")
     if not image:raise RuntimeError("Updates Promotion is enabled but Promotion Image is not configured")
+    if not sticker:raise RuntimeError("Updates Promotion is enabled but Updates Post Sticker is not configured")
     if not updates:raise RuntimeError("Updates Promotion is enabled but Updates Channel is not configured")
 
     generated=(state["promotion_link"] if state else None) or ""
@@ -58,7 +63,7 @@ async def run(ctx:PipelineContext,qid:int,movie:str,channel_id:int,invite_link:s
     try:
         if not generated:
             temporary=await bot_api_request(ctx.cfg.control_token,"sendPhoto",{
-                "chat_id":channel_id,"photo":image,"caption":invite_link,
+                "chat_id":channel_id,"photo":image,"caption":provider_caption(invite_link),
             })
             temporary_id=int(temporary["message_id"])
             provider_chat="@"+provider
@@ -74,13 +79,18 @@ async def run(ctx:PipelineContext,qid:int,movie:str,channel_id:int,invite_link:s
         caption_template=await ctx.db.setting("promotion_caption","❤️‍🔥 {movie}\n\n🥳 all qualities Added ....!🕺")
         caption=format_template(caption_template,movie=movie,owner_username=ctx.cfg.owner_username)
         button=await ctx.db.setting("promotion_button_text","Click here to start and get Movie")
-        result=await bot_api_request(ctx.cfg.control_token,"sendPhoto",{
-            "chat_id":updates,"photo":image,"caption":caption,
-            "reply_markup":{"inline_keyboard":[[{"text":button,"url":generated}],[{"text":button,"url":generated}]]},
-        })
-        post_id=int(result["message_id"])
-        await ctx.db.patch_state(qid,promotion_done=1,promotion_post_id=post_id,promotion_link=generated)
-        await ctx.db.log(f"Published updates promotion to {updates}","INFO",qid)
+        post_id=int(state["promotion_post_id"] or 0) if state else 0
+        if not post_id:
+            result=await bot_api_request(ctx.cfg.control_token,"sendPhoto",{
+                "chat_id":updates,"photo":image,"caption":caption,
+                "reply_markup":{"inline_keyboard":[[{"text":button,"url":generated}],[{"text":button,"url":generated}]]},
+            })
+            post_id=int(result["message_id"])
+            await ctx.db.patch_state(qid,promotion_post_id=post_id,promotion_link=generated)
+        sticker_result=await bot_api_request(ctx.cfg.control_token,"sendSticker",{"chat_id":updates,"sticker":sticker})
+        sticker_id=int(sticker_result["message_id"])
+        await ctx.db.patch_state(qid,promotion_done=1,promotion_post_id=post_id,promotion_sticker_id=sticker_id,promotion_link=generated)
+        await ctx.db.log(f"Published updates promotion and sticker to {updates}","INFO",qid)
         return post_id
     finally:
         if temporary_id:

@@ -41,6 +41,9 @@ SETTING_DEFS: dict[str, dict[str, Any]] = {
     "promotion_link_provider": {"title": "Link Provider Bot", "category": "catalog", "kind": "username", "help": "The userbot sends /genlink and then forwards the temporary image post here."},
     "promotion_caption": {"title": "Promotion Caption", "category": "catalog", "kind": "template", "help": "Final updates-channel caption. Supports {movie}."},
     "promotion_button_text": {"title": "Promotion Button Text", "category": "catalog", "kind": "text", "help": "Text used for both generated-link inline buttons."},
+    "promotion_updates_sticker": {"title": "Updates Post Sticker", "category": "catalog", "kind": "sticker", "help": "Sticker sent immediately after every promotional post in the updates channel."},
+    "created_channels_folder_enabled": {"title": "Created Channels Folder", "category": "channel", "kind": "bool", "help": "Keep channels created by CineForge inside a dedicated Telegram folder on the userbot account."},
+    "created_channels_folder_name": {"title": "Folder Name", "category": "channel", "kind": "text", "help": "Telegram folder name used for channels created by CineForge."},
 }
 
 CATEGORIES = {

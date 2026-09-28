@@ -33,6 +33,8 @@ class Database:
             await self.conn.execute("ALTER TABLE pipeline_state ADD COLUMN promotion_link TEXT")
         if "promotion_post_id" not in state_columns:
             await self.conn.execute("ALTER TABLE pipeline_state ADD COLUMN promotion_post_id INTEGER")
+        if "promotion_sticker_id" not in state_columns:
+            await self.conn.execute("ALTER TABLE pipeline_state ADD COLUMN promotion_sticker_id INTEGER")
         await self.conn.commit()
     async def execute(self, sql: str, params: tuple[Any,...]=()) -> int:
         assert self.conn

@@ -19,6 +19,7 @@ from userbot.login_manager import LoginManager
 from pipeline.context import PipelineContext
 from pipeline.orchestrator import Orchestrator
 from pipeline.stages.stage_5_promote import register as register_promote
+from pipeline.channel_folder import ensure_created_channels_folder
 from control.bot import build_control_bot
 from utils.logger import setup_logging
 from utils.github_store import load_state, persist_state
@@ -62,6 +63,8 @@ class UserbotRuntime:
                 speed = SpeedController(self.db)
                 context = PipelineContext(client, self.cfg, self.db, speed)
                 register_promote(context)
+                channel_rows=await self.db.db.fetchall("SELECT channel_id FROM created_channels WHERE channel_id IS NOT NULL ORDER BY id")
+                await ensure_created_channels_folder(context,[int(row["channel_id"]) for row in channel_rows])
                 worker = Orchestrator(context)
                 task = asyncio.create_task(worker.run_forever(), name="pipeline-worker")
                 self.client, self.worker, self.task = client, worker, task
