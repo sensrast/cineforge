@@ -24,6 +24,7 @@ class Config:
     phone: str = os.getenv("USERBOT_PHONE", "")
     session_string: str = os.getenv("USERBOT_SESSION_STRING", "")
     control_token: str = os.getenv("CONTROL_BOT_TOKEN", "")
+    control_username: str = ""
     owner_id: int = _int("OWNER_USER_ID", 0)
     owner_username: str = os.getenv("OWNER_USERNAME", "").lstrip("@")
     source_bot: str = os.getenv("SOURCE_BOT_USERNAME", "MVHuntbot").lstrip("@")

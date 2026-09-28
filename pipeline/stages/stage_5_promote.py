@@ -7,6 +7,7 @@ from pyrogram.types import ChatPrivileges
 from pipeline.context import PipelineContext
 from utils.notifications import notify_control_bot,get_control_bot_identity,bot_api_request
 from utils.github_store import persist_state
+from utils.modern_admin import grant_control_bot_rights
 log=logging.getLogger(__name__)
 
 OWNER_PRIVILEGES=ChatPrivileges(
@@ -51,6 +52,15 @@ async def add_control_bot_admin(ctx:PipelineContext,qid:int,channel_id:int)->int
   if 'already' not in str(exc).lower() and 'admin' not in str(exc).lower():raise RuntimeError(f'Could not add @{username} as channel administrator: {exc}') from exc
  await ctx.db.log('Control bot added as administrator for inline-button posts','INFO',qid);return bot.id
 
+async def _modernize_control_bot(ctx:PipelineContext,qid:int,channel_id:int,username:str)->bool:
+ """Switch layers only while Pyrogram is offline; shared auth keys cannot mix layers."""
+ await ctx.client.stop()
+ try:
+  result=await grant_control_bot_rights(ctx.cfg,[channel_id],username)
+  return bool(result.get(channel_id))
+ finally:
+  await ctx.client.start()
+
 async def _find_owner(ctx:PipelineContext,channel_id:int):
  async for member in ctx.client.get_chat_members(channel_id,limit=500):
   if member.user and member.user.id==ctx.cfg.owner_id:return member
@@ -66,10 +76,15 @@ async def _promote_owner(ctx:PipelineContext,qid:int|None,channel_id:int,title:s
  modern_granted=await _grant_modern_botapi_rights(ctx,qid,channel_id,member.user.id,full=True)
  if not modern_granted:
   await ctx.speed.call(lambda:ctx.client.promote_chat_member(channel_id,member.user.id,OWNER_PRIVILEGES),qid)
- if qid is not None:await ctx.db.patch_state(qid,owner_promoted=1)
+ check=await bot_api_request(ctx.cfg.control_token,'getChatMember',{'chat_id':channel_id,'user_id':member.user.id})
+ verified=bool(check.get('result',{}).get('can_send_welcome_messages'))
  row=await ctx.db.created_by_channel(channel_id);was_confirmed=bool(row and row['owner_admin_confirmed'])
- await ctx.db.db.execute('UPDATE created_channels SET owner_admin_confirmed=1 WHERE channel_id=?',(channel_id,))
- await ctx.db.log('Owner membership detected; complete administrator rights reapplied (including welcome-message best effort)','INFO',qid)
+ await ctx.db.db.execute('UPDATE created_channels SET owner_admin_confirmed=? WHERE channel_id=?',(int(verified),channel_id))
+ if not verified:
+  await ctx.db.log('Owner is admin but Manage Welcome Messages is still missing; reconciliation will retry','WARNING',qid)
+  return False
+ if qid is not None:await ctx.db.patch_state(qid,owner_promoted=1)
+ await ctx.db.log('Owner membership detected; all administrator rights verified, including Manage Welcome Messages','INFO',qid)
  if notify and not was_confirmed:
   await notify_control_bot(ctx.cfg.control_token,ctx.cfg.owner_id,f'✅ You are now a full administrator of {title}.')
  return True
@@ -102,6 +117,9 @@ async def _reconciliation_loop(ctx:PipelineContext)->None:
 
 async def prepare_channel(ctx:PipelineContext,qid:int,channel_id:int,title:str)->None:
  filestore_id=await add_filestore_admin(ctx,qid,channel_id);control_id=await add_control_bot_admin(ctx,qid,channel_id)
+ identity=await get_control_bot_identity(ctx.cfg.control_token);username=identity.get('username','')
+ if not username or not await _modernize_control_bot(ctx,qid,channel_id,username):
+  await ctx.db.log('Could not grant the control bot Layer-229 welcome-message rights; permanent reconciliation remains active','WARNING',qid)
  await _grant_modern_botapi_rights(ctx,qid,channel_id,control_id,full=True)
  await _grant_modern_botapi_rights(ctx,qid,channel_id,filestore_id)
  task=asyncio.create_task(_one_shot_owner_check(ctx,qid,channel_id,title),name=f'owner-promotion-{qid}')

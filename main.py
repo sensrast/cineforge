@@ -24,6 +24,7 @@ from pipeline.promotion import upgrade_promotion_template
 from control.bot import build_control_bot
 from utils.logger import setup_logging
 from utils.github_store import load_state, persist_state
+from utils.modern_admin import grant_control_bot_rights
 log = logging.getLogger("cineforge")
 
 async def health(request):
@@ -59,13 +60,17 @@ class UserbotRuntime:
                 raise RuntimeError("API ID and API hash are required before userbot login.")
             client = build_userbot(self.cfg)
             try:
+                channel_rows=await self.db.db.fetchall("SELECT channel_id FROM created_channels WHERE channel_id IS NOT NULL ORDER BY id")
+                channel_ids=[int(row["channel_id"]) for row in channel_rows]
+                if channel_ids and self.cfg.control_username:
+                    modern=await grant_control_bot_rights(self.cfg,channel_ids,self.cfg.control_username)
+                    log.info("Layer-229 control-bot rights applied to %s/%s recorded channels",sum(modern.values()),len(modern))
                 await client.start()
                 me = await client.get_me()
                 speed = SpeedController(self.db)
                 context = PipelineContext(client, self.cfg, self.db, speed)
                 register_promote(context)
-                channel_rows=await self.db.db.fetchall("SELECT channel_id FROM created_channels WHERE channel_id IS NOT NULL ORDER BY id")
-                await ensure_created_channels_folder(context,[int(row["channel_id"]) for row in channel_rows])
+                await ensure_created_channels_folder(context,channel_ids)
                 worker = Orchestrator(context)
                 task = asyncio.create_task(worker.run_forever(), name="pipeline-worker")
                 self.client, self.worker, self.task = client, worker, task
@@ -185,7 +190,8 @@ async def run():
     control = build_control_bot(settings.control_token, queries, settings.owner_id, settings, runtime, login)
     while True:
         try:
-            await control.initialize(); await control.start(); await control.updater.start_polling(drop_pending_updates=False)
+            await control.initialize(); settings.control_username=(await control.bot.get_me()).username or ""
+            await control.start(); await control.updater.start_polling(drop_pending_updates=False)
             await control.bot.set_my_commands([
                 BotCommand("start", "Open the admin panel"), BotCommand("add", "Choose type for one title"),
                 BotCommand("movie", "Queue a movie directly"), BotCommand("series", "Queue a series directly"),
