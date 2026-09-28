@@ -93,10 +93,11 @@ def parse_episode(text: str) -> tuple[int | None, int | None]:
     episode = re.search(r"(?i)\bE(?:p(?:isode)?)?[ ._-]*(\d{1,3})\b", text)
     return (1, int(episode.group(1))) if episode else (None, None)
 
-def parse_results(messages: list[dict[str, Any]], desired: set[str], allow_non_hindi: bool = False, title_query: str = "", content_type: str = "auto") -> list[dict[str, Any]]:
-    """Map each matching title block to its numbered Download button."""
+def parse_results(messages: list[dict[str, Any]], desired: set[str], allow_non_hindi: bool = False, title_query: str = "", content_type: str = "auto", all_candidates: bool = False) -> list[dict[str, Any]]:
+    """Map matching title blocks to their numbered Download buttons."""
     wanted = {normalize_quality(item.strip()) for item in desired}
     best: dict[tuple, dict[str, Any]] = {}
+    all_items: list[dict[str,Any]] = []
     for message in messages:
         full_text = message.get("text", "") or ""
         all_buttons = message.get("buttons", [])
@@ -106,16 +107,17 @@ def parse_results(messages: list[dict[str, Any]], desired: set[str], allow_non_h
         # identified as Hindi/Dual Audio, apply that context to every file block.
         page_is_hindi = bool(LANG_RE.search(full_text))
         for block in blocks:
+            language_rank=1
             if not allow_non_hindi:
-                block_is_hindi = bool(LANG_RE.search(block))
+                block_is_hindi = explicit_hindi(block)
                 block_is_other = explicit_non_hindi(block)
-                # Explicit per-file language always wins over the page heading.
-                # Thus a Kannada 480p entry is rejected even when another item
-                # makes the overall page contain the word Hindi.
+                # Explicit per-file Hindi always wins over page context and
+                # file size. Hindi + another language remains acceptable.
                 if block_is_other and not block_is_hindi:
                     continue
                 if not block_is_hindi and not page_is_hindi:
                     continue
+                language_rank=2 if block_is_hindi else 1
             source_name = re.sub(r"(?is)^.*?Name\s*:\s*", "", block).splitlines()[0].strip()
             title_source=re.sub(r"(?i)\bS(?:eason)?[ ._-]*\d{1,2}(?:[ ._-]*E(?:p(?:isode)?)?[ ._-]*\d{1,3})?\b|\bE(?:p(?:isode)?)?[ ._-]*\d{1,3}\b|\bcomplete[ ._-]*(?:series|season)\b"," ",source_name)
             if title_query and not title_matches(title_query, title_source):
@@ -160,13 +162,17 @@ def parse_results(messages: list[dict[str, Any]], desired: set[str], allow_non_h
                 "callback_data": button.get("callback_data"),
                 "size_mb": size_mb(block + " " + button["text"]),
                 "source_name": source_name,
+                "language_rank": language_rank,
             }
+            all_items.append(item)
             key = (season, episode, quality) if episode is not None else (None, None, quality)
-            if key not in best or item["size_mb"] > best[key]["size_mb"]:
+            if key not in best or (item["language_rank"],item["size_mb"]) > (best[key].get("language_rank",0),best[key]["size_mb"]):
                 best[key] = item
     order = {"480p": 0, "720p": 1, "1080p": 2, "2160p": 3}
-    return sorted(best.values(), key=lambda item: (
-        item.get("season") or 0, item.get("episode") or 0, order.get(item["quality"], 99)
+    values=all_items if all_candidates else list(best.values())
+    return sorted(values, key=lambda item: (
+        item.get("season") or 0, item.get("episode") or 0, order.get(item["quality"], 99),
+        -item.get("language_rank",0),-item.get("size_mb",0)
     ))
 
 def extract_batch_link(text: str) -> str | None:

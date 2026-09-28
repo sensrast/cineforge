@@ -116,7 +116,7 @@ async def run(ctx: PipelineContext, qid: int, movie: str, content_type: str = "m
         seen_text.add(text)
         page_data = {"id": current.id, "text": text, "buttons": buttons(current)}
         pages.append(page_data)
-        page_matches = parse_results([page_data], desired, allow_non_hindi=(language == "any"), title_query=movie, content_type=content_type)
+        page_matches = parse_results([page_data], desired, allow_non_hindi=(language == "any"), title_query=movie, content_type=content_type, all_candidates=True)
         if any(item.get("is_series") for item in page_matches):
             series_mode = True
         if page_matches:

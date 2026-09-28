@@ -56,6 +56,15 @@ class ParserTests(unittest.TestCase):
   self.assertTrue(explicit_hindi('Chhaava 720p HIN AAC5.1.mkv'))
   self.assertFalse(explicit_hindi('Pushpa 1080p BluRay.mkv'))
   self.assertFalse(explicit_non_hindi('Pushpa Hindi Kannada Dual Audio 480p.mkv'))
+ def test_explicit_hindi_outranks_larger_unlabelled_candidate(self):
+  text=('Name:\nPushpa The Rise 2021 Hindi 1080p\nSize: 2 GB\nClick Download 1\n'
+        'Name:\nPushpa The Rise 2021 1080p\nSize: 5 GB\nClick Download 2\n'
+        'Name:\nPushpa The Rise 2021 Multi Audio Hindi Tamil 1080p\nSize: 1 GB\nClick Download 3')
+  buttons=[{'text':'Download 1 : 2 GB'},{'text':'Download 2 : 5 GB'},{'text':'Download 3 : 1 GB'}]
+  best=parse_results([{'id':41,'text':text,'buttons':buttons}],{'1080p'},title_query='Pushpa',content_type='movie')
+  self.assertEqual(best[0]['button_text'],'Download 1 : 2 GB')
+  all_found=parse_results([{'id':41,'text':text,'buttons':buttons}],{'1080p'},title_query='Pushpa',content_type='movie',all_candidates=True)
+  self.assertEqual([item['button_text'] for item in all_found],['Download 1 : 2 GB','Download 3 : 1 GB','Download 2 : 5 GB'])
  def test_hindi_page_rejects_explicit_kannada_file(self):
   text=('Name:\nPushpa Hindi 720p\nSize: 1 GB\nClick Download 1\n'
         'Name:\nPushpa KannadaHDRip 480p\nSize: 500 MB\nClick Download 2')
