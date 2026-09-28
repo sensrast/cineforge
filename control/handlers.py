@@ -329,8 +329,12 @@ class ControlHandlers:
         try: count = min(50, max(1, int(context.args[0]))) if context.args else 20
         except ValueError: count = 20
         rows = await self.db.recent_logs(count); await update.message.reply_text(("\n".join(f"[{r['level']}] #{r['queue_id'] or '-'} {r['message']}" for r in rows) or "No logs.")[:3900], reply_markup=back_home_keyboard())
-    async def pause(self, update, context): await self.db.set_setting("pipeline_paused", "true"); await update.message.reply_text("⏸ Pipeline paused.", reply_markup=back_home_keyboard())
-    async def resume(self, update, context): await self.db.set_setting("pipeline_paused", "false"); await update.message.reply_text("▶️ Pipeline resumed.", reply_markup=back_home_keyboard())
+    async def pause(self, update, context):
+        await self.db.set_setting("pipeline_paused","true");await persist_state(self.db)
+        await update.message.reply_text("⏸ Pipeline paused.",reply_markup=back_home_keyboard())
+    async def resume(self, update, context):
+        await self.db.set_setting("pipeline_paused","false");await persist_state(self.db)
+        await update.message.reply_text("▶️ Pipeline resumed.",reply_markup=back_home_keyboard())
     async def cancel(self, update, context):
         if not context.args: return await update.message.reply_text("Usage: /cancel <queue_id>", reply_markup=back_home_keyboard())
         await self.db.db.execute("UPDATE queue SET status='cancelled',updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='pending'", (int(context.args[0]),)); await update.message.reply_text("Cancelled if still pending.", reply_markup=back_home_keyboard())

@@ -86,13 +86,12 @@ class UserbotRuntime:
             self.client = self.worker = self.task = None
             self.health_app["userbot"] = False; self.health_app["worker"] = False
 
-async def restore_render_state(queries: Queries) -> None:
-    """Restore settings and channel registry from durable private storage."""
+async def restore_render_state(queries: Queries) -> bool:
+    """Restore private durable state. False means startup must not overwrite it."""
     try:
         state = await load_state()
         saved = state.get("settings", {})
         if not saved:
-            # One-time migration from the earlier Render-env persistence.
             saved = json.loads(os.getenv("CINEFORGE_SETTINGS_JSON", "{}"))
         for key, value in saved.items():
             await queries.set_setting(str(key), str(value))
@@ -101,8 +100,32 @@ async def restore_render_state(queries: Queries) -> None:
                 "INSERT OR IGNORE INTO created_channels(movie_name,content_type,channel_id,invite_link,batch_link,shortened_link) VALUES(?,?,?,?,?,?)",
                 (item.get("movie_name", ""), item.get("content_type", "movie"), int(item["channel_id"]), item.get("invite_link"), item.get("batch_link"), item.get("shortened_link")),
             )
+        return True
     except Exception:
-        log.exception("Could not restore durable CineForge state")
+        log.exception("Could not restore durable CineForge state; refusing startup overwrite")
+        return False
+
+async def seed_bootstrap_settings(queries: Queries) -> None:
+    """Make effective environment/bootstrap values durable without replacing saved values."""
+    values={
+        "api_id":str(settings.api_id or ""),"api_hash":settings.api_hash,
+        "owner_username":settings.owner_username,"source_bot":settings.source_bot,
+        "filestore_bot":settings.filestore_bot,"catalog_bot":settings.catalog_bot,
+        "arolinks_api_key":settings.arolinks_key,"arolinks_url":settings.arolinks_url,
+        "tutorial_link":settings.tutorial_link,"channel_name":settings.channel_name,
+        "channel_description":settings.channel_description,"caption":settings.caption,
+        "desired_qualities":settings.qualities,"language_filter":settings.language_filter,
+        "search_strategy":settings.search_strategy,"max_search_pages":str(settings.max_search_pages),
+        "source_timeout":str(settings.source_timeout),"flow_timeout":str(settings.flow_timeout),
+        "default_genre":settings.default_genre,"catalog_language":settings.catalog_language,
+        "delay_between_actions":str(settings.delay_actions),"delay_between_movies":str(settings.delay_movies),
+        "max_channels_per_day":str(settings.max_channels),"limits_enabled":str(settings.limits_enabled).lower(),
+        "auto_catalog":str(settings.auto_catalog).lower(),"userbot_phone":settings.phone,
+        "userbot_session_string":settings.session_string,
+    }
+    for key,value in values.items():
+        if value and not await queries.db.fetchone("SELECT 1 FROM settings WHERE key=?",(key,)):
+            await queries.set_setting(key,value)
 
 async def apply_saved_settings(queries: Queries) -> None:
     mapping = {
@@ -127,11 +150,15 @@ async def run():
     setup_logging(); health_app, runner = await serve_health()
     db = Database(settings.db_path); await db.connect(); await db.init_schema(Path(__file__).parent / "database/schema.sql")
     queries = Queries(db)
-    await restore_render_state(queries)
+    durable_loaded=await restore_render_state(queries)
     await db.execute("UPDATE queue SET status='pending' WHERE status NOT IN ('pending','completed','failed','cancelled')")
     await apply_saved_settings(queries)
-    try: await persist_state(queries)
-    except Exception: log.exception("Could not persist restored startup state")
+    if durable_loaded:
+        await seed_bootstrap_settings(queries)
+        try: await persist_state(queries)
+        except Exception: log.exception("Could not persist complete startup state")
+    else:
+        raise RuntimeError("Durable state could not be loaded; refusing to start with reset defaults")
     if not settings.control_token or not settings.owner_id:
         raise RuntimeError("CONTROL_BOT_TOKEN and OWNER_USER_ID are required bootstrap settings.")
 

@@ -32,25 +32,37 @@ async def persist_state(db) -> bool:
     token, repo, path = _config()
     if not token or not repo:
         return False
-    settings_rows = await db.db.fetchall("SELECT key,value FROM settings WHERE key != 'userbot_session_string'")
-    channel_rows = await db.db.fetchall("SELECT movie_name,content_type,channel_id,invite_link,batch_link,shortened_link FROM created_channels")
-    state = {
-        "settings": {row["key"]: row["value"] for row in settings_rows},
-        "channels": [dict(row) for row in channel_rows],
-    }
-    content = base64.b64encode(json.dumps(state, ensure_ascii=False, separators=(",", ":")).encode()).decode()
     url = f"https://api.github.com/repos/{repo}/contents/{path}"
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
     async with _lock:
+        # Read the database only after acquiring the process lock. Every saved
+        # setting is durable, including API credentials, phone, and session.
+        settings_rows = await db.db.fetchall("SELECT key,value FROM settings")
+        channel_rows = await db.db.fetchall("SELECT movie_name,content_type,channel_id,invite_link,batch_link,shortened_link FROM created_channels")
+        local_settings = {row["key"]: row["value"] for row in settings_rows}
+        local_channels = [dict(row) for row in channel_rows]
         async with aiohttp.ClientSession(headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as session:
-            sha = None
-            async with session.get(url) as response:
-                if response.status == 200:
-                    sha = (await response.json()).get("sha")
-                elif response.status != 404:
-                    response.raise_for_status()
-            payload = {"message": "Update CineForge runtime state", "content": content}
-            if sha: payload["sha"] = sha
-            async with session.put(url, json=payload) as response:
-                response.raise_for_status(); await response.read()
-    return True
+            for attempt in range(3):
+                sha = None; remote_settings = {}
+                async with session.get(url) as response:
+                    if response.status == 200:
+                        current=await response.json();sha=current.get("sha")
+                        try:
+                            remote=json.loads(base64.b64decode(current["content"]).decode("utf-8"))
+                            remote_settings=remote.get("settings",{})
+                        except Exception:
+                            remote_settings={}
+                    elif response.status != 404:
+                        response.raise_for_status()
+                # Never erase a durable setting merely because a fresh local
+                # SQLite database did not contain that key. Local values win.
+                merged_settings=dict(remote_settings);merged_settings.update(local_settings)
+                state={"version":2,"settings":merged_settings,"channels":local_channels}
+                content=base64.b64encode(json.dumps(state,ensure_ascii=False,separators=(",", ":")).encode()).decode()
+                payload={"message":"Update CineForge runtime state","content":content}
+                if sha:payload["sha"]=sha
+                async with session.put(url,json=payload) as response:
+                    if response.status in {409,422} and attempt<2:
+                        await response.read();await asyncio.sleep(.5*(attempt+1));continue
+                    response.raise_for_status();await response.read();return True
+    return False

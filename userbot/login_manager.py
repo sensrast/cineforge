@@ -12,6 +12,7 @@ from pyrogram.errors import (
 )
 from database.queries import Queries
 from config import Config
+from utils.github_store import persist_state
 log = logging.getLogger(__name__)
 
 @dataclass
@@ -84,6 +85,7 @@ class LoginManager:
             await self.db.set_setting("userbot_session_string", session)
             await self.db.set_setting("userbot_phone", pending.phone)
             self.cfg.session_string = session
+            await persist_state(self.db)
             await self._persist_render_session(session)
         finally:
             await pending.client.disconnect()
