@@ -32,7 +32,7 @@ INSERT OR IGNORE INTO settings(key,value) VALUES
  ('backup_enabled','false'),('backup_channel',''),
  ('promotion_enabled','false'),('promotion_updates_channel','@In_hindi_dubbed_movies'),
  ('promotion_link_provider','Link_providerobot'),
- ('promotion_caption','❤️‍🔥 {movie}\n\n🥳 all qualities Added ....!🕺'),
+ ('promotion_caption','<b>❤️‍🔥 {movie}</b>\n\n<blockquote><b>🥳 all qualities Added ....!🕺</b></blockquote>'),
  ('promotion_button_text','Click here to start and get Movie'),
  ('promotion_updates_sticker',''),('created_channels_folder_enabled','true'),
  ('created_channels_folder_name','🎬 Movie Channels'),

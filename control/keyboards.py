@@ -39,7 +39,7 @@ SETTING_DEFS: dict[str, dict[str, Any]] = {
     "promotion_image": {"title": "Promotion Image", "category": "catalog", "kind": "photo", "help": "Press Change Value, then send the reusable promotional image to this control bot."},
     "promotion_updates_channel": {"title": "Updates Channel", "category": "catalog", "kind": "text", "help": "Channel ID or @username where the final promotional image is posted. The control bot must be an administrator."},
     "promotion_link_provider": {"title": "Link Provider Bot", "category": "catalog", "kind": "username", "help": "The userbot sends /genlink and then forwards the temporary image post here."},
-    "promotion_caption": {"title": "Promotion Caption", "category": "catalog", "kind": "template", "help": "Final updates-channel caption. Supports {movie}."},
+    "promotion_caption": {"title": "Promotion Caption", "category": "catalog", "kind": "template", "help": "Final updates-channel text. Supports {movie} and Telegram HTML such as <b>bold</b> and <blockquote>quote</blockquote>."},
     "promotion_button_text": {"title": "Promotion Button Text", "category": "catalog", "kind": "text", "help": "Text used for both generated-link inline buttons."},
     "promotion_updates_sticker": {"title": "Updates Post Sticker", "category": "catalog", "kind": "sticker", "help": "Sticker sent immediately after every promotional post in the updates channel."},
     "created_channels_folder_enabled": {"title": "Created Channels Folder", "category": "channel", "kind": "bool", "help": "Keep channels created by CineForge inside a dedicated Telegram folder on the userbot account."},

@@ -158,6 +158,9 @@ async def run():
     await apply_saved_settings(queries)
     if durable_loaded:
         await seed_bootstrap_settings(queries)
+        legacy_promo="❤️‍🔥 {movie}\n\n🥳 all qualities Added ....!🕺"
+        if await queries.setting("promotion_caption","")==legacy_promo:
+            await queries.set_setting("promotion_caption","<b>❤️‍🔥 {movie}</b>\n\n<blockquote><b>🥳 all qualities Added ....!🕺</b></blockquote>")
         try: await persist_state(queries)
         except Exception: log.exception("Could not persist complete startup state")
     else:

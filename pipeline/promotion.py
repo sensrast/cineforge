@@ -3,11 +3,17 @@ from __future__ import annotations
 import re
 import asyncio
 import time
+import html
 from pipeline.context import PipelineContext
 from utils.notifications import bot_api_request
 from utils.text_parser import format_template
 
 URL_RE=re.compile(r"https?://[^\s<>]+",re.I)
+LEGACY_PROMOTION_CAPTION="❤️‍🔥 {movie}\n\n🥳 all qualities Added ....!🕺"
+DEFAULT_PROMOTION_CAPTION="<b>❤️‍🔥 {movie}</b>\n\n<blockquote><b>🥳 all qualities Added ....!🕺</b></blockquote>"
+
+def formatted_promotion_caption(template:str,movie:str,owner_username:str="")->str:
+    return format_template(template,movie=html.escape(movie),owner_username=html.escape(owner_username or ""))
 
 def provider_caption(invite_link:str)->str:
     return f"Channel link 🔗 👇👇\n\n{invite_link}\n{invite_link}"
@@ -76,13 +82,14 @@ async def run(ctx:PipelineContext,qid:int,movie:str,channel_id:int,invite_link:s
             generated=await _wait_provider_url(ctx,provider_chat,before)
             await ctx.db.patch_state(qid,promotion_link=generated)
 
-        caption_template=await ctx.db.setting("promotion_caption","❤️‍🔥 {movie}\n\n🥳 all qualities Added ....!🕺")
-        caption=format_template(caption_template,movie=movie,owner_username=ctx.cfg.owner_username)
+        caption_template=await ctx.db.setting("promotion_caption",DEFAULT_PROMOTION_CAPTION)
+        if caption_template==LEGACY_PROMOTION_CAPTION:caption_template=DEFAULT_PROMOTION_CAPTION
+        caption=formatted_promotion_caption(caption_template,movie,ctx.cfg.owner_username)
         button=await ctx.db.setting("promotion_button_text","Click here to start and get Movie")
         post_id=int(state["promotion_post_id"] or 0) if state else 0
         if not post_id:
             result=await bot_api_request(ctx.cfg.control_token,"sendMessage",{
-                "chat_id":updates,"text":caption,"disable_web_page_preview":True,
+                "chat_id":updates,"text":caption,"parse_mode":"HTML","disable_web_page_preview":True,
                 "reply_markup":{"inline_keyboard":[[{"text":button,"url":generated}],[{"text":button,"url":generated}]]},
             })
             post_id=int(result["message_id"])
