@@ -19,9 +19,15 @@ async def ensure_created_channels_folder(ctx:PipelineContext,channel_ids:list[in
     try:
         filters=await ctx.speed.call(lambda:ctx.client.invoke(GetDialogFilters()),qid)
         existing=None
-        for item in filters:
-            if isinstance(item,DialogFilter) and str(getattr(item,"title",""))==title:
+        custom_filters=[item for item in filters if isinstance(item,DialogFilter)]
+        for item in custom_filters:
+            if str(getattr(item,"title",""))==title:
                 existing=item;break
+        # If this account has one owner-created folder already, use it rather
+        # than silently creating a second folder with a different default name.
+        if existing is None and len(custom_filters)==1:
+            existing=custom_filters[0];title=str(existing.title)
+            await ctx.db.set_setting("created_channels_folder_name",title)
         used={int(getattr(item,"id",0) or 0) for item in filters}
         filter_id=int(existing.id) if existing else next((value for value in range(2,256) if value not in used),None)
         if filter_id is None:raise RuntimeError("No Telegram dialog-folder slot is available")
