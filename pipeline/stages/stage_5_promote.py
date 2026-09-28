@@ -7,6 +7,7 @@ from pyrogram.types import ChatPrivileges
 from pipeline.context import PipelineContext
 from utils.notifications import notify_control_bot,get_control_bot_identity,bot_api_request
 from utils.github_store import persist_state
+from utils.modern_admin import grant_all_admin_rights,disconnect as disconnect_modern_admin
 log=logging.getLogger(__name__)
 
 OWNER_PRIVILEGES=ChatPrivileges(
@@ -35,6 +36,16 @@ async def _grant_modern_botapi_rights(ctx:PipelineContext,qid:int|None,channel_i
  except Exception as exc:
   await ctx.db.log(f'Modern welcome-message permission pass was rejected: {exc}','WARNING',qid);return False
 
+async def _grant_layer229_owner_rights(ctx:PipelineContext,qid:int|None,channel_id:int,user_id:int)->bool:
+ try:
+  channel_peer=await ctx.speed.call(lambda:ctx.client.resolve_peer(channel_id),qid)
+  user_peer=await ctx.speed.call(lambda:ctx.client.resolve_peer(user_id),qid)
+  await grant_all_admin_rights(ctx.cfg,channel_peer,user_peer)
+  return True
+ except Exception as exc:
+  await ctx.db.log(f'Layer-229 full-rights pass failed and will retry: {exc}','WARNING',qid)
+  return False
+
 async def add_filestore_admin(ctx:PipelineContext,qid:int,channel_id:int)->int:
  bot=await ctx.speed.call(lambda:ctx.client.get_users(ctx.cfg.filestore_bot),qid)
  try:await ctx.speed.call(lambda:ctx.client.promote_chat_member(channel_id,bot.id,FILESTORE_PRIVILEGES),qid)
@@ -62,14 +73,17 @@ async def _promote_owner(ctx:PipelineContext,qid:int|None,channel_id:int,title:s
  member=await _find_owner(ctx,channel_id)
  if not member:return False
  # Always reapply privileges, even when Telegram already labels the owner as an
- # administrator. This repairs incomplete/expired admin-right assignments.
- modern_granted=await _grant_modern_botapi_rights(ctx,qid,channel_id,member.user.id,full=True)
- if not modern_granted:
+ # administrator. Layer 229 is required for manage_welcome_messages.
+ full_granted=await _grant_layer229_owner_rights(ctx,qid,channel_id,member.user.id)
+ if not full_granted:
+  await _grant_modern_botapi_rights(ctx,qid,channel_id,member.user.id,full=True)
   await ctx.speed.call(lambda:ctx.client.promote_chat_member(channel_id,member.user.id,OWNER_PRIVILEGES),qid)
+  # Keep the record unconfirmed so the permanent loop retries Layer 229.
+  return False
  if qid is not None:await ctx.db.patch_state(qid,owner_promoted=1)
  row=await ctx.db.created_by_channel(channel_id);was_confirmed=bool(row and row['owner_admin_confirmed'])
  await ctx.db.db.execute('UPDATE created_channels SET owner_admin_confirmed=1 WHERE channel_id=?',(channel_id,))
- await ctx.db.log('Owner membership detected; complete administrator rights reapplied (including welcome-message best effort)','INFO',qid)
+ await ctx.db.log('Owner membership detected; all Layer-229 administrator rights reapplied, including manage welcome messages','INFO',qid)
  if notify and not was_confirmed:
   await notify_control_bot(ctx.cfg.control_token,ctx.cfg.owner_id,f'✅ You are now a full administrator of {title}.')
  return True
@@ -81,6 +95,9 @@ async def _one_shot_owner_check(ctx:PipelineContext,qid:int,channel_id:int,title
 
 async def _reconciliation_loop(ctx:PipelineContext)->None:
  """Forever repair owner rights on every accessible registered channel."""
+ try:
+  async for _dialog in ctx.client.get_dialogs(limit=500):pass
+ except Exception:log.debug('Could not prefill peer cache for owner reconciliation',exc_info=True)
  while True:
   changed=False
   try:
@@ -114,6 +131,7 @@ async def stop_watchers()->None:
  if _RECONCILER:tasks.append(_RECONCILER)
  for task in tasks:task.cancel()
  if tasks:await asyncio.gather(*tasks,return_exceptions=True)
+ await disconnect_modern_admin()
  _WATCHERS.clear();_RECONCILER=None
 
 def register(ctx:PipelineContext)->None:
