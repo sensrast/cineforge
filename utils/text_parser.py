@@ -44,6 +44,12 @@ OFFICIAL_TITLE_ALIASES = {
 
 def normalize_title(text: str) -> str:
     """Reduce a title/filename to canonical title words, excluding release tags."""
+    # Ignore release-group/site decorations wrapped around a delivered name.
+    text=re.sub(r"^\s*(?:\[[^\]]+\]\s*)+","",text or "")
+    text=re.sub(r"(?i)\b(?:https?://)?(?:www\.)?[a-z0-9-]+\.(?:com|net|org|in)\b"," ",text)
+    # Everything after the first year or quality is release metadata, not title.
+    boundary=re.search(r"(?i)\b(?:19|20)\d{2}\b|\b(?:480\s*p|720\s*p|1080\s*p|2160\s*p|ds4k|4k)",text)
+    if boundary:text=text[:boundary.start()]
     text = re.sub(r"(?i)\b(19|20)\d{2}\b", " ", text)
     text = re.sub(r"(?i)\b(?:480\s*p|720\s*p|1080\s*p|2160\s*p|ds4k|4k)", " ", text)
     text = re.sub(r"(?i)\b(?:ddp?|aac)[ ._-]*\d(?:\.\d)?\b|\b\d+(?:\.\d+)?\s*(?:gb|mb)\b", " ", text)

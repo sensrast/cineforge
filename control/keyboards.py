@@ -134,6 +134,8 @@ def status_keyboard(rows) -> InlineKeyboardMarkup:
     for row in rows:
         if row['status'] == 'failed':
             buttons.append([InlineKeyboardButton(f"🔄 Retry #{row['id']} — {_short(row['movie_name'], 24)}", callback_data=f"job:retry:{row['id']}")])
+        elif row['status'] not in {'completed','cancelled'}:
+            buttons.append([InlineKeyboardButton(f"🛑 Cancel #{row['id']} — {_short(row['movie_name'], 24)}",callback_data=f"job:cancel:{row['id']}")])
     buttons += [[InlineKeyboardButton("🔄 Refresh Status", callback_data="nav:status")], [InlineKeyboardButton("⬅️ Back to Home", callback_data="nav:home")]]
     return InlineKeyboardMarkup(buttons)
 

@@ -293,6 +293,11 @@ class ControlHandlers:
             await self.db.db.execute("UPDATE queue SET status='pending',error_message=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='failed'", (queue_id,))
             rows = await self.db.queue_list()
             return await self._edit(query, "✅ Job requeued.\n\n" + await self.status_text(), status_keyboard(rows))
+        if data.startswith("job:cancel:"):
+            queue_id=int(data.rsplit(":",1)[1])
+            changed=await self.db.db.execute("UPDATE queue SET status='cancelled',updated_at=CURRENT_TIMESTAMP WHERE id=? AND status NOT IN ('completed','cancelled')",(queue_id,))
+            rows=await self.db.queue_list()
+            return await self._edit(query,f"🛑 Cancellation requested for job #{queue_id}. The active operation will stop at its next checkpoint.\n\n"+await self.status_text(),status_keyboard(rows))
         if data.startswith("cfg:"):
             parts = data.split(":"); action = parts[1]; key = parts[2]
             if action == "toggle":
@@ -337,7 +342,7 @@ class ControlHandlers:
         await update.message.reply_text("▶️ Pipeline resumed.",reply_markup=back_home_keyboard())
     async def cancel(self, update, context):
         if not context.args: return await update.message.reply_text("Usage: /cancel <queue_id>", reply_markup=back_home_keyboard())
-        await self.db.db.execute("UPDATE queue SET status='cancelled',updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='pending'", (int(context.args[0]),)); await update.message.reply_text("Cancelled if still pending.", reply_markup=back_home_keyboard())
+        qid=int(context.args[0]);await self.db.db.execute("UPDATE queue SET status='cancelled',updated_at=CURRENT_TIMESTAMP WHERE id=? AND status NOT IN ('completed','cancelled')",(qid,));await update.message.reply_text(f"🛑 Cancellation requested for job #{qid}. Active work will stop at its next checkpoint.",reply_markup=back_home_keyboard())
     async def retry(self, update, context):
         if not context.args: return await update.message.reply_text("Usage: /retry <queue_id>", reply_markup=back_home_keyboard())
         await self.db.db.execute("UPDATE queue SET status='pending',error_message=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='failed'", (int(context.args[0]),)); await update.message.reply_text("Requeued if failed.", reply_markup=back_home_keyboard())

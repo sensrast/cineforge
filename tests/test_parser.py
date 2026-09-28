@@ -31,6 +31,8 @@ class ParserTests(unittest.TestCase):
   self.assertTrue(title_matches('Queen','Queen 2013 Hindi 1080p BluRay DDP 5.1.mkv'))
   self.assertFalse(title_matches('Queen','Queen of Tears 2024 Hindi 480p.mkv'))
   self.assertFalse(title_matches('Queen','The Queen 2006 Hindi 720p.mkv'))
+  self.assertTrue(title_matches('Gangubai Kathiawadi','[MoviesMod] Gangubai.Kathiawadi.2022.Hindi.480p.WEB-DL.DDP5.1.mkv'))
+  self.assertFalse(title_matches('Gangubai Kathiawadi','Gangubai Kathiawadi 2 2025 Hindi 720p.mkv'))
  def test_result_parser_filters_wrong_sequel(self):
   text=('Name:\nPushpa 2 The Rule Hindi 720p\nSize: 1 GB\nClick Download 1\n'
         'Name:\nPushpa The Rise Hindi 720p\nSize: 900 MB\nClick Download 2')

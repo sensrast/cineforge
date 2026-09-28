@@ -13,6 +13,7 @@ from pipeline.stages import (
     stage_10_catalog,
 )
 from pipeline.backup_storage import backup_movie
+from pipeline.cancellation import JobCancelled,checkpoint
 log = logging.getLogger(__name__)
 
 class Orchestrator:
@@ -63,6 +64,7 @@ class Orchestrator:
                     try:
                         await self.ctx.speed.call(lambda: self.ctx.client.get_chat(existing["channel_id"]), qid)
                         invite = await self.ctx.speed.call(lambda: self.ctx.client.export_chat_invite_link(existing["channel_id"]), qid)
+                        await checkpoint(self.ctx,qid)
                         await self.ctx.db.complete(qid)
                         await notify_control_bot(
                             self.ctx.cfg.control_token, self.ctx.cfg.owner_id,
@@ -80,6 +82,7 @@ class Orchestrator:
             state = await self.ctx.db.state(qid)
             if resume_at <= 1:
                 stage = 1
+                await checkpoint(self.ctx,qid)
                 await self.ctx.db.set_stage(qid, stage, "searching")
                 source = await stage_1_search.run(self.ctx, qid, movie, content_type)
             else:
@@ -87,6 +90,7 @@ class Orchestrator:
 
             if resume_at <= 2:
                 stage = 2
+                await checkpoint(self.ctx,qid)
                 await self.ctx.db.set_stage(qid, stage, "filtering")
                 selected = await stage_2_filter.run(self.ctx, qid, source)
             else:
@@ -94,6 +98,7 @@ class Orchestrator:
 
             if resume_at <= 3:
                 stage = 3
+                await checkpoint(self.ctx,qid)
                 await self.ctx.db.set_stage(qid, stage, "fetching")
                 fetched = await stage_3_fetch.run(self.ctx, qid, selected)
             else:
@@ -101,6 +106,7 @@ class Orchestrator:
 
             if resume_at <= 4:
                 stage = 4
+                await checkpoint(self.ctx,qid)
                 await self.ctx.db.set_stage(qid, stage, "creating_channel")
                 channel = await stage_4_channel.run(self.ctx, qid, movie, content_type)
             else:
@@ -108,6 +114,7 @@ class Orchestrator:
 
             if resume_at <= 5:
                 stage = 5
+                await checkpoint(self.ctx,qid)
                 await self.ctx.db.set_stage(qid, stage, "assigning_channel_admins")
                 await stage_5_promote.prepare_channel(
                     self.ctx, qid, channel["channel_id"], format_template(self.ctx.cfg.channel_name, movie=movie, owner_username=self.ctx.cfg.owner_username)
@@ -115,6 +122,7 @@ class Orchestrator:
 
             if resume_at <= 6:
                 stage = 6
+                await checkpoint(self.ctx,qid)
                 await self.ctx.db.set_stage(qid, stage, "copying")
                 copied = await stage_6_copy.run(self.ctx, qid, movie, channel["channel_id"], fetched)
             else:
@@ -122,6 +130,7 @@ class Orchestrator:
 
             if resume_at <= 7:
                 stage = 7
+                await checkpoint(self.ctx,qid)
                 await self.ctx.db.set_stage(qid, stage, "batching")
                 batch = await stage_7_batch.run(self.ctx, qid, channel["channel_id"], copied)
             else:
@@ -129,6 +138,7 @@ class Orchestrator:
 
             if resume_at <= 8:
                 stage = 8
+                await checkpoint(self.ctx,qid)
                 await self.ctx.db.set_stage(qid, stage, "shortening")
                 batch_short = await stage_8_shorten.run(self.ctx, qid, batch)
             else:
@@ -136,6 +146,7 @@ class Orchestrator:
 
             if resume_at <= 9:
                 stage = 9
+                await checkpoint(self.ctx,qid)
                 await self.ctx.db.set_stage(qid, stage, "backing_up_and_posting")
                 await backup_movie(self.ctx,qid,movie,channel["channel_id"],copied,batch)
                 await stage_9_post.run(self.ctx, qid, movie, channel["channel_id"], copied, batch_short)
@@ -153,14 +164,20 @@ class Orchestrator:
 
             if (await self.ctx.db.setting("auto_catalog", "true")).lower() == "true" and resume_at <= 10:
                 stage = 10
+                await checkpoint(self.ctx,qid)
                 await self.ctx.db.set_stage(qid, stage, "cataloging")
                 await stage_10_catalog.run(self.ctx, qid, movie, channel["invite_link"], fetched[0]["source_message_id"])
 
+            await checkpoint(self.ctx,qid)
             await self.ctx.db.complete(qid)
             await self.ctx.db.finalize_channel(channel["channel_id"], batch, batch_short)
             await self.ctx.db.log(f"Completed {movie}", "INFO", qid)
             await notify_control_bot(self.ctx.cfg.control_token, self.ctx.cfg.owner_id, f'✅ Completed: {movie}\n{channel["invite_link"]}')
             await persist_state(self.ctx.db)
+        except JobCancelled as exc:
+            await self.ctx.db.log(str(exc),"INFO",qid)
+            try:await notify_control_bot(self.ctx.cfg.control_token,self.ctx.cfg.owner_id,f"🛑 Cancelled: {movie}")
+            except Exception:pass
         except asyncio.CancelledError:
             raise
         except Exception as exc:

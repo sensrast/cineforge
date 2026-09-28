@@ -4,25 +4,41 @@ import logging
 from datetime import datetime, timezone
 from pipeline.context import PipelineContext
 from pipeline.stages.common import latest_id, buttons, newest_after
-from utils.text_parser import parse_results, normalize_quality, explicit_non_hindi, media_label, title_matches
+from pipeline.cancellation import checkpoint
+from utils.text_parser import parse_results, normalize_quality, explicit_non_hindi, media_label, title_matches, QUALITY_RE
 
 log = logging.getLogger(__name__)
 
-async def _fetch_page_items(ctx: PipelineContext, qid: int, current, items: list[dict], fetched: list[dict], seen: set[tuple], strict_hindi: bool, movie: str) -> None:
+async def _fetch_page_items(ctx: PipelineContext, qid: int, current, items: list[dict], fetched: list[dict], seen: set[tuple], attempted: set[tuple], strict_hindi: bool, movie: str) -> None:
     """Fetch matching qualities while their edited-page buttons still exist."""
     chat = ctx.cfg.source_bot
     for item in items:
+        await checkpoint(ctx,qid)
         key = (item.get("season"), item.get("episode"), item["quality"])
-        if key in seen:
+        candidate_key=(item["quality"],item.get("source_name",""),round(float(item.get("size_mb") or 0),1),str(item.get("callback_data") or ""))
+        if key in seen or candidate_key in attempted:
             continue
+        attempted.add(candidate_key)
         current = await ctx.client.get_messages(chat, current.id)
         position = None
         if current.reply_markup:
-            for row_index, row in enumerate(current.reply_markup.inline_keyboard):
-                for column_index, button in enumerate(row):
-                    if (button.text or "") == item["button_text"]:
-                        position = (column_index, row_index); break
-                if position: break
+            # Callback data identifies the intended file more reliably than
+            # duplicated button labels such as "Download 1".
+            callback=str(item.get("callback_data") or "")
+            if callback:
+                for row_index,row in enumerate(current.reply_markup.inline_keyboard):
+                    for column_index,button in enumerate(row):
+                        raw=button.callback_data
+                        live_callback=raw.decode(errors="ignore") if isinstance(raw,bytes) else str(raw or "")
+                        if live_callback==callback:
+                            position=(column_index,row_index);break
+                    if position:break
+            if not position:
+                for row_index, row in enumerate(current.reply_markup.inline_keyboard):
+                    for column_index, button in enumerate(row):
+                        if (button.text or "") == item["button_text"]:
+                            position = (column_index, row_index); break
+                    if position: break
         if not position:
             label = f"S{item.get('season')}E{item.get('episode')} " if item.get('episode') is not None else ""
             await ctx.db.log(f"Download button unavailable for {label}{item['quality']}", "WARNING", qid)
@@ -36,6 +52,10 @@ async def _fetch_page_items(ctx: PipelineContext, qid: int, current, items: list
             continue
         if delivered_label and not title_matches(movie, delivered_label):
             await ctx.db.log(f"Rejected delivered wrong-title/sequel file for {movie}: {delivered_label[:180]}","WARNING",qid)
+            continue
+        actual_quality=QUALITY_RE.search(delivered_label)
+        if actual_quality and normalize_quality(actual_quality.group(1))!=item["quality"]:
+            await ctx.db.log(f"Rejected quality mismatch: selected {item['quality']} but delivered {normalize_quality(actual_quality.group(1))}: {delivered_label[:150]}","WARNING",qid)
             continue
         fetched.append({
             "quality": item["quality"], "season": item.get("season"), "episode": item.get("episode"),
@@ -64,8 +84,10 @@ async def run(ctx: PipelineContext, qid: int, movie: str, content_type: str = "m
     strategy = (await ctx.db.setting("search_strategy", ctx.cfg.search_strategy)).strip().lower()
     prefetched: list[dict] = []
     fetched_keys: set[tuple] = set()
+    attempted_candidates: set[tuple] = set()
     series_mode = False
     for _ in range(max_pages):
+        await checkpoint(ctx,qid)
         text = current.text or current.caption or ""
         if text in seen_text:
             break
@@ -76,12 +98,13 @@ async def run(ctx: PipelineContext, qid: int, movie: str, content_type: str = "m
         if any(item.get("is_series") for item in page_matches):
             series_mode = True
         if page_matches:
-            await _fetch_page_items(ctx, qid, current, page_matches, prefetched, fetched_keys, strict_hindi=(language != "any"), movie=movie)
+            await _fetch_page_items(ctx, qid, current, page_matches, prefetched, fetched_keys, attempted_candidates, strict_hindi=(language != "any"), movie=movie)
         matches = parse_results(pages, desired, allow_non_hindi=(language == "any"), title_query=movie, content_type=content_type)
-        found = {item["quality"] for item in matches}
+        found = {item["quality"] for item in prefetched}
+        offered={item["quality"] for item in matches}
         progress = (
-            f"Movie Hunt page {len(pages)}: found {', '.join(sorted(found)) or 'no desired qualities'} "
-            f"({len(found)}/{len(desired)}), strategy={strategy}"
+            f"Movie Hunt page {len(pages)}: fetched {', '.join(sorted(found)) or 'none'}; "
+            f"offered {', '.join(sorted(offered)) or 'none'} ({len(found)}/{len(desired)}), strategy={strategy}"
         )
         log.info(progress)
         await ctx.db.log(progress, "INFO", qid)
@@ -143,6 +166,9 @@ async def run(ctx: PipelineContext, qid: int, movie: str, content_type: str = "m
             break
         current = changed
     updates = {"source_messages_json": pages}
+    if not prefetched:
+        await ctx.db.patch_state(qid,**updates)
+        raise RuntimeError("Movie Hunt pages were exhausted without a valid delivered file; stale result buttons will not be retried")
     if content_type == "movie" and prefetched:
         missing=mandatory-{item["quality"] for item in prefetched if item.get("episode") is None}
         if missing:
