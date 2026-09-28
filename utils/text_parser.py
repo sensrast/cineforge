@@ -6,18 +6,27 @@ from typing import Any
 # trailing word boundary would incorrectly miss the quality.
 QUALITY_RE = re.compile(r"(?i)(480\s*p|720\s*p|1080\s*p|2160\s*p|ds4k|4k)")
 SIZE_RE = re.compile(r"(?i)(\d+(?:\.\d+)?)\s*(KB|MB|GB|TB)")
-LANG_RE = re.compile(r"(?i)\bhindi\b|हिंदी")
-OTHER_LANG_RE = re.compile(r"(?i)\b(kan(?:nada)?|tam(?:il)?|tel(?:ugu)?|mal(?:ayalam)?|bengali|bangla|marathi|gujarati|punjabi|odia|oriya|urdu|english)\b")
+# Language tags are often glued to release tags (KannadaHDRip, HindiWEBRip),
+# so full language names cannot depend on a trailing word boundary.
+LANG_RE = re.compile(r"(?i)\bhindi|\bhin(?=\b|[._ -]|aac|ddp|hevc|x26[45]|web|hdrip)|हिंदी")
+OTHER_LANG_RE = re.compile(
+    r"(?i)\b(?:kannada|tamil|telugu|malayalam|bengali|bangla|marathi|gujarati|punjabi|odia|oriya|urdu|english)"
+    r"|\b(?:kan|tam|tel|mal)\b"
+)
 BATCH_RE = re.compile(r"https?://t\.me/[A-Za-z0-9_]+\?start=[A-Za-z0-9_-]+")
 
 def normalize_quality(q: str) -> str:
     q = re.sub(r"\s+", "", q.lower())
     return {"4k": "2160p", "ds4k": "2160p"}.get(q, q)
 
+def explicit_hindi(text: str) -> bool:
+    """True only when the delivered filename/caption positively names Hindi."""
+    return bool(LANG_RE.search(text or ""))
+
 def explicit_non_hindi(text: str) -> bool:
     """True when a filename/caption names another language without Hindi."""
     text=text or ""
-    return bool(OTHER_LANG_RE.search(text)) and not bool(LANG_RE.search(text))
+    return bool(OTHER_LANG_RE.search(text)) and not explicit_hindi(text)
 
 def media_label(message: Any) -> str:
     """Combine the delivered media filename and caption for validation."""

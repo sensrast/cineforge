@@ -1,5 +1,5 @@
 import unittest
-from utils.text_parser import parse_results,extract_batch_link,clean_title,is_series,title_matches,format_template,explicit_non_hindi
+from utils.text_parser import parse_results,extract_batch_link,clean_title,is_series,title_matches,format_template,explicit_hindi,explicit_non_hindi
 class ParserTests(unittest.TestCase):
  def test_multi_block_mapping(self):
   text='''Name:\nFilm Hindi 480p WebRip\nSize: 500 MB\nType: video\nClick Download 1\nName:\nFilm Dual Audio 1080p HEVC 10bit\nSize: 2.86 GB\nType: video\nClick Download 2'''
@@ -50,10 +50,15 @@ class ParserTests(unittest.TestCase):
  def test_delivered_media_language_aliases(self):
   self.assertTrue(explicit_non_hindi('Pushpa.2021.480p.KAN.Dub.mkv'))
   self.assertTrue(explicit_non_hindi('Pushpa Tamil 480p.mkv'))
+  self.assertTrue(explicit_non_hindi('Pushpa The Rise KannadaHDRip 720p.mkv'))
+  self.assertTrue(explicit_non_hindi('Pushpa The Rise MalayalamHDRip 1080p.mkv'))
+  self.assertTrue(explicit_hindi('Pushpa HINDIWEBRip 480p.mkv'))
+  self.assertTrue(explicit_hindi('Chhaava 720p HIN AAC5.1.mkv'))
+  self.assertFalse(explicit_hindi('Pushpa 1080p BluRay.mkv'))
   self.assertFalse(explicit_non_hindi('Pushpa Hindi Kannada Dual Audio 480p.mkv'))
  def test_hindi_page_rejects_explicit_kannada_file(self):
   text=('Name:\nPushpa Hindi 720p\nSize: 1 GB\nClick Download 1\n'
-        'Name:\nPushpa Kannada 480p\nSize: 500 MB\nClick Download 2')
+        'Name:\nPushpa KannadaHDRip 480p\nSize: 500 MB\nClick Download 2')
   buttons=[{'text':'Download 1 : 1 GB'},{'text':'Download 2 : 500 MB'}]
   found=parse_results([{'id':40,'text':text,'buttons':buttons}],{'480p','720p'},title_query='Pushpa',content_type='movie')
   self.assertEqual([item['quality'] for item in found],['720p'])

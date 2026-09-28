@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pipeline.context import PipelineContext
 from pipeline.stages.common import latest_id, buttons, newest_after
 from pipeline.cancellation import checkpoint
-from utils.text_parser import parse_results, normalize_quality, explicit_non_hindi, media_label, title_matches, QUALITY_RE
+from utils.text_parser import parse_results, normalize_quality, explicit_hindi, explicit_non_hindi, media_label, title_matches, QUALITY_RE
 
 log = logging.getLogger(__name__)
 
@@ -55,6 +55,9 @@ async def _fetch_page_items(ctx: PipelineContext, qid: int, current, items: list
         delivered_label=media_label(media)
         if strict_hindi and explicit_non_hindi(delivered_label):
             await ctx.db.log(f"Rejected delivered non-Hindi file for {item['quality']}: {delivered_label[:180]}","WARNING",qid)
+            continue
+        if strict_hindi and not explicit_hindi(delivered_label):
+            await ctx.db.log(f"Rejected file without positive Hindi verification for {item['quality']}: {delivered_label[:180]}","WARNING",qid)
             continue
         if delivered_label and not title_matches(movie, delivered_label):
             await ctx.db.log(f"Rejected delivered wrong-title/sequel file for {movie}: {delivered_label[:180]}","WARNING",qid)
