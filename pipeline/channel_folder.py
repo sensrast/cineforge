@@ -1,8 +1,10 @@
 """Maintain a Telegram dialog folder containing CineForge-created channels."""
 from __future__ import annotations
+import logging
+log=logging.getLogger(__name__)
 from pyrogram.raw.functions.messages import GetDialogFilters,UpdateDialogFilter
 from pyrogram.raw.functions.chatlists import ExportChatlistInvite,EditExportedInvite,GetExportedInvites
-from pyrogram.raw.types import DialogFilter,InputChatlistDialogFilter
+from pyrogram.raw.types import DialogFilter,DialogFilterChatlist,InputChatlistDialogFilter
 from pipeline.context import PipelineContext
 from utils.github_store import persist_state
 from utils.notifications import notify_control_bot
@@ -19,7 +21,7 @@ async def ensure_created_channels_folder(ctx:PipelineContext,channel_ids:list[in
     try:
         filters=await ctx.speed.call(lambda:ctx.client.invoke(GetDialogFilters()),qid)
         existing=None
-        custom_filters=[item for item in filters if isinstance(item,DialogFilter)]
+        custom_filters=[item for item in filters if isinstance(item,(DialogFilter,DialogFilterChatlist))]
         for item in custom_filters:
             if str(getattr(item,"title",""))==title:
                 existing=item;break
@@ -33,22 +35,32 @@ async def ensure_created_channels_folder(ctx:PipelineContext,channel_ids:list[in
         if filter_id is None:raise RuntimeError("No Telegram dialog-folder slot is available")
         pinned=list(existing.pinned_peers) if existing else []
         included=list(existing.include_peers) if existing else []
-        excluded=list(existing.exclude_peers) if existing else []
+        excluded=list(getattr(existing,"exclude_peers",[]) or []) if existing else []
         known={_peer_key(peer) for peer in pinned+included}
+        # String sessions do not retain Pyrogram's peer cache. Reading dialogs
+        # once makes numeric -100... channel IDs resolvable after every restart.
+        async for _dialog in ctx.client.get_dialogs(limit=500):
+            pass
         for channel_id in channel_ids:
             try:peer=await ctx.speed.call(lambda cid=channel_id:ctx.client.resolve_peer(cid),qid)
             except Exception as exc:
                 await ctx.db.log(f"Could not add channel {channel_id} to folder: {exc}","WARNING",qid);continue
             if _peer_key(peer) not in known:
                 included.append(peer);known.add(_peer_key(peer))
-        updated=DialogFilter(
-            id=filter_id,title=title,pinned_peers=pinned,include_peers=included,exclude_peers=excluded,
-            contacts=getattr(existing,"contacts",None),non_contacts=getattr(existing,"non_contacts",None),
-            groups=getattr(existing,"groups",None),broadcasts=getattr(existing,"broadcasts",None),
-            bots=getattr(existing,"bots",None),exclude_muted=getattr(existing,"exclude_muted",None),
-            exclude_read=getattr(existing,"exclude_read",None),exclude_archived=getattr(existing,"exclude_archived",None),
-            emoticon=getattr(existing,"emoticon",None),
-        )
+        if isinstance(existing,DialogFilterChatlist):
+            updated=DialogFilterChatlist(
+                id=filter_id,title=title,pinned_peers=pinned,include_peers=included,
+                has_my_invites=getattr(existing,"has_my_invites",None),emoticon=getattr(existing,"emoticon",None),
+            )
+        else:
+            updated=DialogFilter(
+                id=filter_id,title=title,pinned_peers=pinned,include_peers=included,exclude_peers=excluded,
+                contacts=getattr(existing,"contacts",None),non_contacts=getattr(existing,"non_contacts",None),
+                groups=getattr(existing,"groups",None),broadcasts=getattr(existing,"broadcasts",None),
+                bots=getattr(existing,"bots",None),exclude_muted=getattr(existing,"exclude_muted",None),
+                exclude_read=getattr(existing,"exclude_read",None),exclude_archived=getattr(existing,"exclude_archived",None),
+                emoticon=getattr(existing,"emoticon",None),
+            )
         await ctx.speed.call(lambda:ctx.client.invoke(UpdateDialogFilter(id=filter_id,filter=updated)),qid)
 
         # Keep a shareable Telegram chat-folder invite synchronized with the
@@ -74,5 +86,6 @@ async def ensure_created_channels_folder(ctx:PipelineContext,channel_ids:list[in
         await ctx.db.log(f"Updated shareable Telegram folder '{title}' with {len(peers)} channels: {folder_url}","INFO",qid)
         return True
     except Exception as exc:
+        log.exception("Created-channels folder update failed")
         await ctx.db.log(f"Created-channels folder update failed: {exc}","WARNING",qid)
         return False
