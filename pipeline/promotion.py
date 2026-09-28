@@ -12,7 +12,15 @@ URL_RE=re.compile(r"https?://[^\s<>]+",re.I)
 LEGACY_PROMOTION_CAPTION="❤️‍🔥 {movie}\n\n🥳 all qualities Added ....!🕺"
 DEFAULT_PROMOTION_CAPTION="<b>❤️‍🔥 {movie}</b>\n\n<blockquote><b>🥳 all qualities Added ....!🕺</b></blockquote>"
 
+def upgrade_promotion_template(template:str)->str:
+    if "<b>" in template.lower() or "<blockquote>" in template.lower():return template
+    lines=[line.strip() for line in template.splitlines() if line.strip()]
+    if not lines:return DEFAULT_PROMOTION_CAPTION
+    first=lines[0];remainder="\n".join(lines[1:]) or "🥳 all qualities Added ....!🕺"
+    return f"<b>{first}</b>\n\n<blockquote><b>{remainder}</b></blockquote>"
+
 def formatted_promotion_caption(template:str,movie:str,owner_username:str="")->str:
+    template=upgrade_promotion_template(template)
     return format_template(template,movie=html.escape(movie),owner_username=html.escape(owner_username or ""))
 
 def provider_caption(invite_link:str)->str:

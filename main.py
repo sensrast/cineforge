@@ -20,6 +20,7 @@ from pipeline.context import PipelineContext
 from pipeline.orchestrator import Orchestrator
 from pipeline.stages.stage_5_promote import register as register_promote
 from pipeline.channel_folder import ensure_created_channels_folder
+from pipeline.promotion import upgrade_promotion_template
 from control.bot import build_control_bot
 from utils.logger import setup_logging
 from utils.github_store import load_state, persist_state
@@ -158,9 +159,9 @@ async def run():
     await apply_saved_settings(queries)
     if durable_loaded:
         await seed_bootstrap_settings(queries)
-        legacy_promo="❤️‍🔥 {movie}\n\n🥳 all qualities Added ....!🕺"
-        if await queries.setting("promotion_caption","")==legacy_promo:
-            await queries.set_setting("promotion_caption","<b>❤️‍🔥 {movie}</b>\n\n<blockquote><b>🥳 all qualities Added ....!🕺</b></blockquote>")
+        promo_caption=await queries.setting("promotion_caption","")
+        if promo_caption:
+            await queries.set_setting("promotion_caption",upgrade_promotion_template(promo_caption))
         try: await persist_state(queries)
         except Exception: log.exception("Could not persist complete startup state")
     else:

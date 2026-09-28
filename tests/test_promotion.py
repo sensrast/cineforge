@@ -1,5 +1,5 @@
 import unittest
-from pipeline.promotion import provider_caption,formatted_promotion_caption,DEFAULT_PROMOTION_CAPTION
+from pipeline.promotion import provider_caption,formatted_promotion_caption,DEFAULT_PROMOTION_CAPTION,upgrade_promotion_template
 
 class PromotionTests(unittest.TestCase):
  def test_provider_caption_matches_requested_layout(self):
@@ -9,3 +9,6 @@ class PromotionTests(unittest.TestCase):
   self.assertEqual(formatted_promotion_caption(DEFAULT_PROMOTION_CAPTION,'Iron Man'),'<b>❤️‍🔥 Iron Man</b>\n\n<blockquote><b>🥳 all qualities Added ....!🕺</b></blockquote>')
  def test_movie_title_is_html_escaped(self):
   self.assertIn('A &amp; B',formatted_promotion_caption(DEFAULT_PROMOTION_CAPTION,'A & B'))
+ def test_saved_plain_custom_caption_is_upgraded_without_losing_emoji(self):
+  old='❤️‍🔥 {movie}\n\n🥳 all qualities Added ....!🌟'
+  self.assertEqual(upgrade_promotion_template(old),'<b>❤️‍🔥 {movie}</b>\n\n<blockquote><b>🥳 all qualities Added ....!🌟</b></blockquote>')
