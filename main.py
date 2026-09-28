@@ -63,7 +63,7 @@ class UserbotRuntime:
                 channel_rows=await self.db.db.fetchall("SELECT channel_id FROM created_channels WHERE channel_id IS NOT NULL ORDER BY id")
                 channel_ids=[int(row["channel_id"]) for row in channel_rows]
                 if channel_ids and self.cfg.control_username:
-                    modern=await grant_control_bot_rights(self.cfg,channel_ids,self.cfg.control_username)
+                    modern=await grant_control_bot_rights(self.cfg,channel_ids,self.cfg.control_username,self.cfg.owner_id)
                     log.info("Layer-229 control-bot rights applied to %s/%s recorded channels",sum(modern.values()),len(modern))
                 await client.start()
                 me = await client.get_me()

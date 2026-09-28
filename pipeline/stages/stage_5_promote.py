@@ -56,7 +56,7 @@ async def _modernize_control_bot(ctx:PipelineContext,qid:int,channel_id:int,user
  """Switch layers only while Pyrogram is offline; shared auth keys cannot mix layers."""
  await ctx.client.stop()
  try:
-  result=await grant_control_bot_rights(ctx.cfg,[channel_id],username)
+  result=await grant_control_bot_rights(ctx.cfg,[channel_id],username,ctx.cfg.owner_id)
   return bool(result.get(channel_id))
  finally:
   await ctx.client.start()

@@ -20,8 +20,8 @@ def _rights()->ChatAdminRights:
   manage_topics=True,post_stories=True,edit_stories=True,delete_stories=True,
   manage_direct_messages=True,manage_ranks=True,manage_linked_peers=True,manage_welcome_messages=True)
 
-async def grant_control_bot_rights(cfg,channel_ids:list[int],bot_username:str)->dict[int,bool]:
- """Run only while every Pyrogram connection using this auth key is stopped."""
+async def grant_control_bot_rights(cfg,channel_ids:list[int],bot_username:str,owner_id:int|None=None)->dict[int,bool]:
+ """Grant the control bot, and any joined owner, all current rights while Pyrogram is offline."""
  results={int(cid):False for cid in channel_ids}
  if not results:return results
  async with _lock:
@@ -33,10 +33,17 @@ async def grant_control_bot_rights(cfg,channel_ids:list[int],bot_username:str)->
    entities={}
    async for dialog in client.iter_dialogs():entities[int(dialog.id)]=dialog.input_entity
    bot=await client.get_input_entity('@'+bot_username.lstrip('@'))
+   owner=entities.get(int(owner_id)) if owner_id else None
+   if owner_id and owner is None:
+    try:owner=await client.get_input_entity(int(owner_id))
+    except Exception:owner=None
    for cid in results:
     try:
      channel=entities.get(cid) or await client.get_input_entity(cid)
      await client(EditAdminRequest(channel=channel,user_id=bot,admin_rights=_rights(),rank=''))
+     if owner is not None:
+      try:await client(EditAdminRequest(channel=channel,user_id=owner,admin_rights=_rights(),rank=''))
+      except Exception:pass  # Owner may not have joined this channel yet.
      results[cid]=True
     except Exception:results[cid]=False
   finally:await client.disconnect()
