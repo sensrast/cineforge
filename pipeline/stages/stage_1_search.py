@@ -9,6 +9,12 @@ from utils.text_parser import parse_results, normalize_quality, explicit_non_hin
 
 log = logging.getLogger(__name__)
 
+def delivered_qualities(label:str,height:int=0)->set[str]:
+    found={normalize_quality(match.group(1)) for match in QUALITY_RE.finditer(label or "")}
+    if not found and height:
+        found={"2160p" if height>=1600 else "1080p" if height>=900 else "720p" if height>=600 else "480p"}
+    return found
+
 async def _fetch_page_items(ctx: PipelineContext, qid: int, current, items: list[dict], fetched: list[dict], seen: set[tuple], attempted: set[tuple], delivered_ids: set[str], strict_hindi: bool, movie: str) -> None:
     """Fetch matching qualities while their edited-page buttons still exist."""
     chat = ctx.cfg.source_bot
@@ -58,10 +64,8 @@ async def _fetch_page_items(ctx: PipelineContext, qid: int, current, items: list
         if unique_id and unique_id in delivered_ids:
             await ctx.db.log(f"Rejected duplicate Telegram file delivered again as {item['quality']}: {delivered_label[:150]}","WARNING",qid)
             continue
-        actual_qualities={normalize_quality(match.group(1)) for match in QUALITY_RE.finditer(delivered_label)}
         height=int(getattr(media.video,"height",0) or 0) if media.video else 0
-        if not actual_qualities and height:
-            actual_qualities={"2160p" if height>=1600 else "1080p" if height>=900 else "720p" if height>=600 else "480p"}
+        actual_qualities=delivered_qualities(delivered_label,height)
         if actual_qualities and item["quality"] not in actual_qualities:
             await ctx.db.log(f"Rejected quality mismatch: selected {item['quality']} but delivered {', '.join(sorted(actual_qualities))}: {delivered_label[:150]}","WARNING",qid)
             continue

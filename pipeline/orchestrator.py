@@ -13,6 +13,7 @@ from pipeline.stages import (
     stage_10_catalog,
 )
 from pipeline.backup_storage import backup_movie
+from pipeline.promotion import run as run_promotion
 from pipeline.cancellation import JobCancelled,checkpoint
 log = logging.getLogger(__name__)
 
@@ -162,12 +163,17 @@ class Orchestrator:
                     self.ctx, qid, movie, channel["channel_id"], copied, batch_short
                 )
 
-            if (await self.ctx.db.setting("auto_catalog", "true")).lower() == "true" and resume_at <= 10:
+            latest_state=await self.ctx.db.state(qid)
+            if ((await self.ctx.db.setting("auto_catalog", "true")).lower() == "true" and resume_at <= 10
+                    and not bool(latest_state and latest_state["catalog_added"])):
                 stage = 10
                 await checkpoint(self.ctx,qid)
                 await self.ctx.db.set_stage(qid, stage, "cataloging")
                 await stage_10_catalog.run(self.ctx, qid, movie, channel["invite_link"], fetched[0]["source_message_id"])
 
+            await checkpoint(self.ctx,qid)
+            await self.ctx.db.set_stage(qid,10,"promoting")
+            await run_promotion(self.ctx,qid,movie,channel["channel_id"],channel["invite_link"])
             await checkpoint(self.ctx,qid)
             await self.ctx.db.complete(qid)
             await self.ctx.db.finalize_channel(channel["channel_id"], batch, batch_short)

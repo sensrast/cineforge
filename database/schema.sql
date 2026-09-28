@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS pipeline_state (
  channel_id INTEGER, invite_link TEXT, owner_promoted INTEGER DEFAULT 0, forwarded_message_ids_json TEXT DEFAULT '[]',
  batch_link TEXT, shortened_link TEXT, final_post_id INTEGER, catalog_added INTEGER DEFAULT 0,
  backup_done INTEGER DEFAULT 0, backup_message_ids_json TEXT DEFAULT '[]',
+ promotion_done INTEGER DEFAULT 0, promotion_link TEXT, promotion_post_id INTEGER,
  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS created_channels (
@@ -29,4 +30,8 @@ INSERT OR IGNORE INTO settings(key,value) VALUES
  ('language_filter','Hindi'),('search_strategy','First Matching Page'),('max_search_pages','32'),('source_timeout','30'),('flow_timeout','60'),
  ('default_genre','Action'),('catalog_language','Hindi'),
  ('backup_enabled','false'),('backup_channel',''),
+ ('promotion_enabled','false'),('promotion_updates_channel','@In_hindi_dubbed_movies'),
+ ('promotion_link_provider','Link_providerobot'),
+ ('promotion_caption','❤️‍🔥 {movie}\n\n🥳 all qualities Added ....!🕺'),
+ ('promotion_button_text','Click here to start and get Movie'),
  ('auto_catalog','true'),('pipeline_paused','false');

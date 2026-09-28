@@ -221,6 +221,7 @@ class ControlHandlers:
             lowered = value.lower()
             if key == "channel_name" and "{movie}" not in lowered: raise ValueError("Channel-name format must include {movie} (any letter case is accepted).")
             if key == "caption" and ("{movie}" not in lowered or "{quality}" not in lowered): raise ValueError("Caption must include {movie} and {quality} (any letter case is accepted).")
+            if key == "promotion_caption" and "{movie}" not in lowered: raise ValueError("Promotion caption must include {movie}.")
         return value
 
     async def _save_setting(self, key: str, value: str) -> None:
@@ -318,6 +319,14 @@ class ControlHandlers:
                 return await self._field(query, key)
             if action == "choose":
                 value = ":".join(parts[3:]); await self._save_setting(key, value); return await self._field(query, key)
+
+    async def photo(self,update,context):
+        key=context.user_data.get("setting_key")
+        if context.user_data.get("input_mode")!="setting" or not key or SETTING_DEFS.get(key,{}).get("kind")!="photo":
+            return await update.message.reply_text("Open Settings → Catalog Defaults → Promotion Image first.",reply_markup=back_home_keyboard())
+        value=update.message.photo[-1].file_id
+        await self._save_setting(key,value);self._clear_input(context)
+        await update.message.reply_text(f"✅ {SETTING_DEFS[key]['title']} saved.",reply_markup=field_keyboard(key))
 
     async def sticker(self, update, context):
         key = context.user_data.get("setting_key")

@@ -35,6 +35,12 @@ SETTING_DEFS: dict[str, dict[str, Any]] = {
     "flow_timeout": {"title": "Bot-flow Timeout", "category": "speed", "kind": "int_positive", "suffix": " sec", "help": "Time to wait at each file-store or catalog step."},
     "default_genre": {"title": "Default Catalog Genre", "category": "catalog", "kind": "text", "help": "Button text to match, for example Action or Drama."},
     "catalog_language": {"title": "Catalog Language", "category": "catalog", "kind": "text", "help": "Catalog language button text, normally Hindi."},
+    "promotion_enabled": {"title": "Updates Promotion", "category": "catalog", "kind": "bool", "help": "After channel completion, generate a provider link and publish the promotional image."},
+    "promotion_image": {"title": "Promotion Image", "category": "catalog", "kind": "photo", "help": "Press Change Value, then send the reusable promotional image to this control bot."},
+    "promotion_updates_channel": {"title": "Updates Channel", "category": "catalog", "kind": "text", "help": "Channel ID or @username where the final promotional image is posted. The control bot must be an administrator."},
+    "promotion_link_provider": {"title": "Link Provider Bot", "category": "catalog", "kind": "username", "help": "The userbot sends /genlink and then forwards the temporary image post here."},
+    "promotion_caption": {"title": "Promotion Caption", "category": "catalog", "kind": "template", "help": "Final updates-channel caption. Supports {movie}."},
+    "promotion_button_text": {"title": "Promotion Button Text", "category": "catalog", "kind": "text", "help": "Text used for both generated-link inline buttons."},
 }
 
 CATEGORIES = {
@@ -57,7 +63,7 @@ def display_value(key: str, value: str) -> str:
     definition = SETTING_DEFS.get(key, {})
     if definition.get("secret"):
         return "••••" + value[-4:] if len(value) >= 4 else "••••"
-    if definition.get("kind") == "sticker":
+    if definition.get("kind") in {"sticker","photo"}:
         return "Configured ✅"
     if definition.get("kind") == "bool":
         return "ON ✅" if str(value).lower() == "true" else "OFF"

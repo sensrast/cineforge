@@ -27,6 +27,12 @@ class Database:
             await self.conn.execute("ALTER TABLE pipeline_state ADD COLUMN backup_done INTEGER DEFAULT 0")
         if "backup_message_ids_json" not in state_columns:
             await self.conn.execute("ALTER TABLE pipeline_state ADD COLUMN backup_message_ids_json TEXT DEFAULT '[]'")
+        if "promotion_done" not in state_columns:
+            await self.conn.execute("ALTER TABLE pipeline_state ADD COLUMN promotion_done INTEGER DEFAULT 0")
+        if "promotion_link" not in state_columns:
+            await self.conn.execute("ALTER TABLE pipeline_state ADD COLUMN promotion_link TEXT")
+        if "promotion_post_id" not in state_columns:
+            await self.conn.execute("ALTER TABLE pipeline_state ADD COLUMN promotion_post_id INTEGER")
         await self.conn.commit()
     async def execute(self, sql: str, params: tuple[Any,...]=()) -> int:
         assert self.conn
