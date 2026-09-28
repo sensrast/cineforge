@@ -25,37 +25,37 @@ def media_label(message: Any) -> str:
     filename=getattr(media,"file_name","") if media else ""
     return f"{filename or ''} {getattr(message,'caption','') or ''}".strip()
 
+TITLE_NOISE = {
+    "hindi","dual","audio","dubbed","webrip","webdl","web","dl","hdrip","brrip","bluray","blu","ray",
+    "hevc","x264","x265","h264","h265","10bit","8bit","aac","ddp","ddp5","atmos","esub","esubs",
+    "nf","amzn","proper","repack","uncut","extended","remastered","imax","uhd","hdr","sdr","av1",
+    "bollywood","original","org","multi","mkv","mp4","avi","mov","movie","download",
+    "english","kannada","kannada","kan","tamil","tam","telugu","tel","malayalam","mal","bengali","bangla",
+    "marathi","gujarati","punjabi","odia","oriya","urdu",
+    "480p","720p","1080p","2160p","4k",
+}
+# Some films are commonly indexed under an official subtitle even when owners
+# use the short franchise title. Keep these explicit rather than allowing every
+# longer title to pass a prefix match.
+OFFICIAL_TITLE_ALIASES = {
+    ("pushpa",): {("pushpa","the","rise")},
+    ("pushpa","2"): {("pushpa","2","the","rule")},
+}
+
 def normalize_title(text: str) -> str:
-    """Normalize a requested or source title for exact-title comparisons."""
+    """Reduce a title/filename to canonical title words, excluding release tags."""
     text = re.sub(r"(?i)\b(19|20)\d{2}\b", " ", text)
-    text = re.sub(r"(?i)\b(?:hindi|dual\s*audio|webrip|web-dl|bluray|hevc|x26[45]|10bit|480p|720p|1080p|2160p|4k)\b", " ", text)
-    return " ".join(re.findall(r"[a-z0-9]+", text.lower()))
+    text = re.sub(r"(?i)\b(?:480\s*p|720\s*p|1080\s*p|2160\s*p|ds4k|4k)", " ", text)
+    text = re.sub(r"(?i)\b(?:ddp?|aac)[ ._-]*\d(?:\.\d)?\b|\b\d+(?:\.\d+)?\s*(?:gb|mb)\b", " ", text)
+    tokens=re.findall(r"[a-z0-9]+",text.lower())
+    return " ".join(token for token in tokens if token not in TITLE_NOISE)
 
 def title_matches(query: str, candidate: str) -> bool:
-    """Reject sequel collisions such as Pushpa -> Pushpa 2."""
-    wanted = normalize_title(query).split()
-    actual = normalize_title(candidate).split()
-    if not wanted or not actual:
-        return False
-    # Requested tokens must appear contiguously in the source filename.
-    positions = [i for i in range(len(actual) - len(wanted) + 1) if actual[i:i + len(wanted)] == wanted]
-    if not positions:
-        return False
-    start = positions[0]; remainder = actual[start + len(wanted):]
-    wanted_numbers = {token for token in wanted if token.isdigit() and 1 <= int(token) <= 20}
-    # A small number immediately following the matched title is normally a
-    # sequel/part marker. Do not let a base-title request select that sequel.
-    if not wanted_numbers and remainder:
-        first = remainder[0]
-        numbered = re.fullmatch(r"(\d{1,2})[a-z]?", first)
-        if (numbered and 1 <= int(numbered.group(1)) <= 20) or first in {
-            "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x",
-            "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
-        }:
-            return False
-        if first in {"part", "chapter", "season"} and len(remainder) > 1 and remainder[1].isdigit():
-            return False
-    return True
+    """Require a canonical exact movie title, not merely a matching prefix."""
+    wanted=tuple(normalize_title(query).split());actual=tuple(normalize_title(candidate).split())
+    if not wanted or not actual:return False
+    if actual==wanted:return True
+    return actual in OFFICIAL_TITLE_ALIASES.get(wanted,set())
 
 def size_mb(text: str) -> float:
     match = SIZE_RE.search(text or "")
@@ -102,10 +102,11 @@ def parse_results(messages: list[dict[str, Any]], desired: set[str], allow_non_h
                 if not block_is_hindi and not page_is_hindi:
                     continue
             source_name = re.sub(r"(?is)^.*?Name\s*:\s*", "", block).splitlines()[0].strip()
-            if title_query and not title_matches(title_query, source_name):
+            title_source=re.sub(r"(?i)\bS(?:eason)?[ ._-]*\d{1,2}(?:[ ._-]*E(?:p(?:isode)?)?[ ._-]*\d{1,3})?\b|\bE(?:p(?:isode)?)?[ ._-]*\d{1,3}\b|\bcomplete[ ._-]*(?:series|season)\b"," ",source_name)
+            if title_query and not title_matches(title_query, title_source):
                 continue
             season, episode = parse_episode(source_name)
-            if content_type == "movie" and episode is not None:
+            if content_type == "movie" and (episode is not None or is_series(source_name)):
                 continue
             if content_type == "series" and episode is None:
                 continue
@@ -180,4 +181,4 @@ def clean_title(name: str) -> str:
     return re.sub(r"(?i)\s*(?:\(|-)?\s*in\s+hindi\s*\)?\s*$", "", name).strip()
 
 def is_series(name: str) -> bool:
-    return bool(re.search(r"(?i)\b(season|s\d{1,2}|episode|ep\d+)\b", name))
+    return bool(re.search(r"(?i)\b(series|season|s\d{1,2}|episode|ep\d+|complete[ ._-]*(?:series|season))\b", name))

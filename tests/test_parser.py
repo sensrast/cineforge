@@ -28,6 +28,9 @@ class ParserTests(unittest.TestCase):
   self.assertFalse(title_matches('Housefull','Housefull.5A.2025.Hindi.720p.mkv'))
   self.assertFalse(title_matches('Housefull','Housefull Five Hindi 1080p.mkv'))
   self.assertTrue(title_matches('Housefull 5','Housefull 5 2025 Hindi 1080p.mkv'))
+  self.assertTrue(title_matches('Queen','Queen 2013 Hindi 1080p BluRay DDP 5.1.mkv'))
+  self.assertFalse(title_matches('Queen','Queen of Tears 2024 Hindi 480p.mkv'))
+  self.assertFalse(title_matches('Queen','The Queen 2006 Hindi 720p.mkv'))
  def test_result_parser_filters_wrong_sequel(self):
   text=('Name:\nPushpa 2 The Rule Hindi 720p\nSize: 1 GB\nClick Download 1\n'
         'Name:\nPushpa The Rise Hindi 720p\nSize: 900 MB\nClick Download 2')
@@ -52,6 +55,13 @@ class ParserTests(unittest.TestCase):
   buttons=[{'text':'Download 1 : 1 GB'},{'text':'Download 2 : 500 MB'}]
   found=parse_results([{'id':40,'text':text,'buttons':buttons}],{'480p','720p'},title_query='Pushpa',content_type='movie')
   self.assertEqual([item['quality'] for item in found],['720p'])
+ def test_queen_does_not_mix_queen_of_tears_quality(self):
+  text=('Name:\nQueen of Tears Hindi 480p Complete Series\nSize: 700 MB\nClick Download 1\n'
+        'Name:\nQueen 2013 Hindi 720p\nSize: 1 GB\nClick Download 2\n'
+        'Name:\nQueen 2013 Hindi 1080p\nSize: 2 GB\nClick Download 3')
+  buttons=[{'text':'Download 1 : 700 MB'},{'text':'Download 2 : 1 GB'},{'text':'Download 3 : 2 GB'}]
+  found=parse_results([{'id':50,'text':text,'buttons':buttons}],{'480p','720p','1080p'},title_query='Queen',content_type='movie')
+  self.assertEqual([item['quality'] for item in found],['720p','1080p'])
  def test_movie_mode_rejects_episodic_animal_results(self):
   text=('Name:\nAnimal 2023 Hindi 720p\nSize: 1 GB\nClick Download 1\n'
         'Name:\nAnimal Kingdom S01E01 Hindi 720p\nSize: 900 MB\nClick Download 2')
