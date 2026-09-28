@@ -9,7 +9,7 @@ from utils.text_parser import parse_results, normalize_quality, explicit_non_hin
 
 log = logging.getLogger(__name__)
 
-async def _fetch_page_items(ctx: PipelineContext, qid: int, current, items: list[dict], fetched: list[dict], seen: set[tuple], attempted: set[tuple], strict_hindi: bool, movie: str) -> None:
+async def _fetch_page_items(ctx: PipelineContext, qid: int, current, items: list[dict], fetched: list[dict], seen: set[tuple], attempted: set[tuple], delivered_ids: set[str], strict_hindi: bool, movie: str) -> None:
     """Fetch matching qualities while their edited-page buttons still exist."""
     chat = ctx.cfg.source_bot
     for item in items:
@@ -53,15 +53,29 @@ async def _fetch_page_items(ctx: PipelineContext, qid: int, current, items: list
         if delivered_label and not title_matches(movie, delivered_label):
             await ctx.db.log(f"Rejected delivered wrong-title/sequel file for {movie}: {delivered_label[:180]}","WARNING",qid)
             continue
-        actual_quality=QUALITY_RE.search(delivered_label)
-        if actual_quality and normalize_quality(actual_quality.group(1))!=item["quality"]:
-            await ctx.db.log(f"Rejected quality mismatch: selected {item['quality']} but delivered {normalize_quality(actual_quality.group(1))}: {delivered_label[:150]}","WARNING",qid)
+        media_object=media.document or media.video
+        unique_id=str(getattr(media_object,"file_unique_id","") or "")
+        if unique_id and unique_id in delivered_ids:
+            await ctx.db.log(f"Rejected duplicate Telegram file delivered again as {item['quality']}: {delivered_label[:150]}","WARNING",qid)
+            continue
+        actual_qualities={normalize_quality(match.group(1)) for match in QUALITY_RE.finditer(delivered_label)}
+        height=int(getattr(media.video,"height",0) or 0) if media.video else 0
+        if not actual_qualities and height:
+            actual_qualities={"2160p" if height>=1600 else "1080p" if height>=900 else "720p" if height>=600 else "480p"}
+        if actual_qualities and item["quality"] not in actual_qualities:
+            await ctx.db.log(f"Rejected quality mismatch: selected {item['quality']} but delivered {', '.join(sorted(actual_qualities))}: {delivered_label[:150]}","WARNING",qid)
+            continue
+        # 4K is optional and must be positively verified. Never infer it merely
+        # because a search-result button was mapped to the 2160p slot.
+        if item["quality"]=="2160p" and "2160p" not in actual_qualities:
+            await ctx.db.log(f"Rejected unverified 2160p/4K candidate: {delivered_label[:150] or 'no delivered filename/resolution'}","WARNING",qid)
             continue
         fetched.append({
             "quality": item["quality"], "season": item.get("season"), "episode": item.get("episode"),
             "source_message_id": media.id, "received_at": datetime.now(timezone.utc).isoformat(),
-            "source_name": delivered_label or item.get("source_name", ""),
+            "source_name": delivered_label or item.get("source_name", ""), "file_unique_id": unique_id,
         })
+        if unique_id:delivered_ids.add(unique_id)
         seen.add(key)
         await ctx.speed.delay()
 
@@ -85,6 +99,7 @@ async def run(ctx: PipelineContext, qid: int, movie: str, content_type: str = "m
     prefetched: list[dict] = []
     fetched_keys: set[tuple] = set()
     attempted_candidates: set[tuple] = set()
+    delivered_file_ids: set[str] = set()
     series_mode = False
     for _ in range(max_pages):
         await checkpoint(ctx,qid)
@@ -98,7 +113,7 @@ async def run(ctx: PipelineContext, qid: int, movie: str, content_type: str = "m
         if any(item.get("is_series") for item in page_matches):
             series_mode = True
         if page_matches:
-            await _fetch_page_items(ctx, qid, current, page_matches, prefetched, fetched_keys, attempted_candidates, strict_hindi=(language != "any"), movie=movie)
+            await _fetch_page_items(ctx, qid, current, page_matches, prefetched, fetched_keys, attempted_candidates, delivered_file_ids, strict_hindi=(language != "any"), movie=movie)
         matches = parse_results(pages, desired, allow_non_hindi=(language == "any"), title_query=movie, content_type=content_type)
         found = {item["quality"] for item in prefetched}
         offered={item["quality"] for item in matches}
