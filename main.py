@@ -18,7 +18,7 @@ from userbot.speed_controller import SpeedController
 from userbot.login_manager import LoginManager
 from pipeline.context import PipelineContext
 from pipeline.orchestrator import Orchestrator
-from pipeline.stages.stage_5_promote import register as register_promote
+from pipeline.stages.stage_5_promote import register as register_promote, stop_watchers as stop_promotion_watchers
 from pipeline.channel_folder import ensure_created_channels_folder
 from pipeline.promotion import upgrade_promotion_template
 from control.bot import build_control_bot
@@ -74,6 +74,7 @@ class UserbotRuntime:
                 try: await client.send_message(self.cfg.owner_id, f"🟢 CineForge userbot online: @{me.username or me.id}")
                 except Exception: log.warning("Startup notification failed", exc_info=True)
             except Exception:
+                await stop_promotion_watchers()
                 try:
                     if client.is_connected: await client.stop()
                 except Exception: pass
@@ -82,6 +83,7 @@ class UserbotRuntime:
     async def stop(self) -> None:
         async with self.lock:
             if self.worker: self.worker.stop_event.set()
+            await stop_promotion_watchers()
             if self.task:
                 try: await asyncio.wait_for(self.task, timeout=30)
                 except asyncio.TimeoutError:
@@ -110,8 +112,8 @@ async def restore_render_state(queries: Queries) -> bool:
         await restore_rows("pipeline_state",state.get("pipeline",[]))
         for item in state.get("channels", []):
             await queries.db.execute(
-                "INSERT OR IGNORE INTO created_channels(movie_name,content_type,channel_id,invite_link,batch_link,shortened_link) VALUES(?,?,?,?,?,?)",
-                (item.get("movie_name", ""), item.get("content_type", "movie"), int(item["channel_id"]), item.get("invite_link"), item.get("batch_link"), item.get("shortened_link")),
+                "INSERT OR IGNORE INTO created_channels(movie_name,content_type,channel_id,invite_link,batch_link,shortened_link,owner_admin_confirmed) VALUES(?,?,?,?,?,?,?)",
+                (item.get("movie_name", ""), item.get("content_type", "movie"), int(item["channel_id"]), item.get("invite_link"), item.get("batch_link"), item.get("shortened_link"), int(item.get("owner_admin_confirmed",0))),
             )
         return True
     except Exception:

@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS pipeline_state (
 CREATE TABLE IF NOT EXISTS created_channels (
  id INTEGER PRIMARY KEY AUTOINCREMENT, queue_id INTEGER REFERENCES queue(id), movie_name TEXT NOT NULL,
  content_type TEXT NOT NULL DEFAULT 'movie', channel_id INTEGER UNIQUE, invite_link TEXT, batch_link TEXT, shortened_link TEXT,
+ owner_admin_confirmed INTEGER DEFAULT 0,
  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
@@ -29,7 +30,7 @@ INSERT OR IGNORE INTO settings(key,value) VALUES
  ('limits_enabled','false'),('delay_between_actions','0.0'),('delay_between_movies','0.0'),
  ('max_channels_per_day','0'),('desired_qualities','480p,720p,1080p,2160p,4K'),
  ('language_filter','Hindi'),('search_strategy','First Matching Page'),('max_search_pages','32'),('source_timeout','30'),('flow_timeout','60'),
- ('floodwait_defer_threshold','120'),
+ ('floodwait_defer_threshold','120'),('owner_admin_reconcile_interval','60'),
  ('default_genre','Action'),('catalog_language','Hindi'),
  ('backup_enabled','false'),('backup_channel',''),
  ('promotion_enabled','false'),('promotion_updates_channel','@In_hindi_dubbed_movies'),

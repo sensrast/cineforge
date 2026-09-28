@@ -38,7 +38,7 @@ async def persist_state(db) -> bool:
         # Read the database only after acquiring the process lock. Every saved
         # setting is durable, including API credentials, phone, and session.
         settings_rows = await db.db.fetchall("SELECT key,value FROM settings")
-        channel_rows = await db.db.fetchall("SELECT movie_name,content_type,channel_id,invite_link,batch_link,shortened_link FROM created_channels")
+        channel_rows = await db.db.fetchall("SELECT movie_name,content_type,channel_id,invite_link,batch_link,shortened_link,owner_admin_confirmed FROM created_channels")
         local_settings = {row["key"]: row["value"] for row in settings_rows}
         local_channels = [dict(row) for row in channel_rows]
         queue_rows=await db.db.fetchall("SELECT * FROM queue WHERE status NOT IN ('completed','cancelled') ORDER BY id")
