@@ -155,7 +155,7 @@ async def run():
     db = Database(settings.db_path); await db.connect(); await db.init_schema(Path(__file__).parent / "database/schema.sql")
     queries = Queries(db)
     durable_loaded=await restore_render_state(queries)
-    await db.execute("UPDATE queue SET status='pending' WHERE status NOT IN ('pending','completed','failed','cancelled')")
+    await db.execute("UPDATE queue SET status='pending' WHERE status NOT IN ('pending','deferred','completed','failed','cancelled')")
     await apply_saved_settings(queries)
     if durable_loaded:
         await seed_bootstrap_settings(queries)

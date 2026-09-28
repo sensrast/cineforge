@@ -33,6 +33,7 @@ SETTING_DEFS: dict[str, dict[str, Any]] = {
     "max_channels_per_day": {"title": "Channels per Day", "category": "speed", "kind": "int", "help": "0 means unlimited. Applied only when Limits is enabled."},
     "source_timeout": {"title": "Search Timeout", "category": "speed", "kind": "int_positive", "suffix": " sec", "help": "Time to wait for Movie Hunt responses."},
     "flow_timeout": {"title": "Bot-flow Timeout", "category": "speed", "kind": "int_positive", "suffix": " sec", "help": "Time to wait at each file-store or catalog step."},
+    "floodwait_defer_threshold": {"title": "FloodWait Defer Threshold", "category": "speed", "kind": "int_positive", "suffix": " sec", "help": "FloodWaits at or above this duration defer only the affected movie so the rest of a batch can continue. Telegram's exact retry time is always respected."},
     "default_genre": {"title": "Default Catalog Genre", "category": "catalog", "kind": "text", "help": "Button text to match, for example Action or Drama."},
     "catalog_language": {"title": "Catalog Language", "category": "catalog", "kind": "text", "help": "Catalog language button text, normally Hindi."},
     "promotion_enabled": {"title": "Updates Promotion", "category": "catalog", "kind": "bool", "help": "After channel completion, generate a provider link and publish the promotional image."},

@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS queue (
  content_type TEXT NOT NULL DEFAULT 'movie', force_rebuild INTEGER NOT NULL DEFAULT 0,
  status TEXT NOT NULL DEFAULT 'pending', current_stage INTEGER NOT NULL DEFAULT 0,
  error_message TEXT, retry_count INTEGER NOT NULL DEFAULT 0, requested_by INTEGER,
+ next_attempt_at TIMESTAMP,
  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_queue_pick ON queue(status, created_at);
@@ -28,6 +29,7 @@ INSERT OR IGNORE INTO settings(key,value) VALUES
  ('limits_enabled','false'),('delay_between_actions','0.0'),('delay_between_movies','0.0'),
  ('max_channels_per_day','0'),('desired_qualities','480p,720p,1080p,2160p,4K'),
  ('language_filter','Hindi'),('search_strategy','First Matching Page'),('max_search_pages','32'),('source_timeout','30'),('flow_timeout','60'),
+ ('floodwait_defer_threshold','120'),
  ('default_genre','Action'),('catalog_language','Hindi'),
  ('backup_enabled','false'),('backup_channel',''),
  ('promotion_enabled','false'),('promotion_updates_channel','@In_hindi_dubbed_movies'),

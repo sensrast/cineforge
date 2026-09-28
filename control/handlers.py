@@ -237,8 +237,10 @@ class ControlHandlers:
         lines = [f'📊 Live Status', f'Pipeline: {"PAUSED" if paused == "true" else "RUNNING"}', f'Userbot: {"CONNECTED" if self.runtime.running else "LOGIN REQUIRED"}', f"Channels today: {today}", f"Active queue: {len(rows)}", ""]
         for row in rows[:15]:
             line = f"• #{row['id']} [{row['content_type'].upper()}] {row['movie_name']} — stage {row['current_stage']}/10 ({row['status']})"
-            if row['status'] == 'failed' and row['error_message']:
-                line += f"\n  Error: {row['error_message'][:180]}"
+            if row['status']=='deferred' and row['next_attempt_at']:
+                line+=f"\n  Automatic retry: {row['next_attempt_at']} UTC"
+            if row['status'] in {'failed','deferred'} and row['error_message']:
+                line += f"\n  Info: {row['error_message'][:180]}"
             lines.append(line)
         return "\n".join(lines)
 

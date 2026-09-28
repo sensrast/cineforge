@@ -5,6 +5,11 @@ from collections.abc import Awaitable, Callable
 from pyrogram.errors import FloodWait
 from database.queries import Queries
 log=logging.getLogger(__name__)
+
+class DeferredFloodWait(Exception):
+ def __init__(self,seconds:int):
+  self.seconds=max(1,int(seconds));super().__init__(f"Telegram FloodWait: retry after {self.seconds}s")
+
 class SpeedController:
  def __init__(self,q:Queries): self.q=q
  async def delay(self,kind:str='action')->None:
@@ -22,4 +27,8 @@ class SpeedController:
     if not inspect.isawaitable(result): raise TypeError('operation must return awaitable')
     return await result
    except FloodWait as e:
-    wait=int(e.value)+1; log.warning('FloodWait %ss',wait); await self.q.log(f'FloodWait {wait}s','WARNING',qid); await asyncio.sleep(wait)
+    wait=int(e.value)+1;log.warning('FloodWait %ss',wait);await self.q.log(f'FloodWait {wait}s','WARNING',qid)
+    try:threshold=max(1,int(await self.q.setting('floodwait_defer_threshold','120')))
+    except ValueError:threshold=120
+    if qid is not None and wait>=threshold:raise DeferredFloodWait(wait) from e
+    await asyncio.sleep(wait)

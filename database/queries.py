@@ -9,19 +9,21 @@ class Queries:
  def __init__(self, db: Database): self.db=db
  async def add_movie(self,name:str,owner:int,content_type:str='movie',force_rebuild:bool=False)->int:
   q=name.strip(); kind='series' if content_type=='series' else 'movie'; qid=await self.db.execute("INSERT INTO queue(movie_name,search_query,content_type,force_rebuild,requested_by) VALUES(?,?,?,?,?)",(q,q,kind,int(force_rebuild),owner)); await self.db.execute("INSERT INTO pipeline_state(queue_id) VALUES(?)",(qid,)); return qid
- async def next_pending(self): return await self.db.fetchone("SELECT * FROM queue WHERE status='pending' ORDER BY created_at,id LIMIT 1")
+ async def next_pending(self): return await self.db.fetchone("SELECT * FROM queue WHERE status IN ('pending','deferred') AND (next_attempt_at IS NULL OR next_attempt_at<=CURRENT_TIMESTAMP) ORDER BY COALESCE(next_attempt_at,created_at),id LIMIT 1")
  async def queue_list(self,limit:int=20): return await self.db.fetchall("SELECT * FROM queue WHERE status NOT IN ('completed','cancelled') ORDER BY created_at LIMIT ?",(limit,))
- async def set_stage(self,qid:int,stage:int,status:str): await self.db.execute("UPDATE queue SET current_stage=?,status=?,updated_at=CURRENT_TIMESTAMP,error_message=NULL WHERE id=?",(stage,status,qid))
- async def fail(self,qid:int,error:str): await self.db.execute("UPDATE queue SET status='failed',error_message=?,retry_count=retry_count+1,updated_at=CURRENT_TIMESTAMP WHERE id=?",(error[:1000],qid))
+ async def set_stage(self,qid:int,stage:int,status:str): await self.db.execute("UPDATE queue SET current_stage=?,status=?,next_attempt_at=NULL,updated_at=CURRENT_TIMESTAMP,error_message=NULL WHERE id=?",(stage,status,qid))
+ async def fail(self,qid:int,error:str): await self.db.execute("UPDATE queue SET status='failed',next_attempt_at=NULL,error_message=?,retry_count=retry_count+1,updated_at=CURRENT_TIMESTAMP WHERE id=?",(error[:1000],qid))
+ async def defer_floodwait(self,qid:int,seconds:int,reason:str):
+  await self.db.execute("UPDATE queue SET status='deferred',next_attempt_at=datetime('now',? || ' seconds'),error_message=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",(str(max(1,int(seconds))),reason[:1000],qid))
  async def complete(self,qid:int): await self.db.execute("UPDATE queue SET status='completed',current_stage=10,updated_at=CURRENT_TIMESTAMP WHERE id=?",(qid,))
  async def retry_failed(self,qid:int):
   row=await self.db.fetchone("SELECT current_stage FROM queue WHERE id=? AND status='failed'",(qid,))
   if not row:return False
   if int(row['current_stage'] or 0)<=3:
    await self.db.execute("UPDATE pipeline_state SET source_messages_json='[]',filtered_files_json='[]',fetched_files_json='[]' WHERE queue_id=?",(qid,))
-   await self.db.execute("UPDATE queue SET status='pending',current_stage=0,error_message=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?",(qid,))
+   await self.db.execute("UPDATE queue SET status='pending',current_stage=0,next_attempt_at=NULL,error_message=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?",(qid,))
   else:
-   await self.db.execute("UPDATE queue SET status='pending',error_message=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?",(qid,))
+   await self.db.execute("UPDATE queue SET status='pending',next_attempt_at=NULL,error_message=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?",(qid,))
   return True
  async def state(self,qid:int): return await self.db.fetchone("SELECT * FROM pipeline_state WHERE queue_id=?",(qid,))
  async def patch_state(self,qid:int,**values:Any):

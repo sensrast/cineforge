@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from pipeline.context import PipelineContext
 from utils.notifications import notify_control_bot
 from utils.github_store import persist_state
@@ -15,6 +16,7 @@ from pipeline.stages import (
 from pipeline.backup_storage import backup_movie
 from pipeline.promotion import run as run_promotion
 from pipeline.cancellation import JobCancelled,checkpoint
+from userbot.speed_controller import DeferredFloodWait
 log = logging.getLogger(__name__)
 
 class Orchestrator:
@@ -180,6 +182,18 @@ class Orchestrator:
             await self.ctx.db.log(f"Completed {movie}", "INFO", qid)
             await notify_control_bot(self.ctx.cfg.control_token, self.ctx.cfg.owner_id, f'✅ Completed: {movie}\n{channel["invite_link"]}')
             await persist_state(self.ctx.db)
+        except DeferredFloodWait as exc:
+            reason=f"Telegram cooldown active for {exc.seconds}s; job automatically deferred at stage {stage}"
+            await self.ctx.db.defer_floodwait(qid,exc.seconds,reason)
+            if stage==4:
+                await self.ctx.db.set_setting("channel_creation_cooldown_until",str(int(time.time())+exc.seconds))
+            await self.ctx.db.log(reason,"WARNING",qid)
+            try:
+                hours,remainder=divmod(exc.seconds,3600);minutes,seconds=divmod(remainder,60)
+                duration=(f"{hours}h {minutes}m" if hours else f"{minutes}m {seconds}s")
+                await notify_control_bot(self.ctx.cfg.control_token,self.ctx.cfg.owner_id,
+                    f"⏳ Telegram cooldown: {movie}\nStage {stage}/10 deferred for {duration}.\nThe worker will continue with other batch items and retry this movie automatically.")
+            except Exception:pass
         except JobCancelled as exc:
             await self.ctx.db.log(str(exc),"INFO",qid)
             try:await notify_control_bot(self.ctx.cfg.control_token,self.ctx.cfg.owner_id,f"🛑 Cancelled: {movie}")
