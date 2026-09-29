@@ -175,6 +175,11 @@ async def run():
     # A Pyrogram layer switch used to clear numeric private-channel peers. Those
     # jobs are safe to resume from their saved stage after the peer-cache fix.
     await db.execute("UPDATE queue SET status='pending',error_message=NULL WHERE status='failed' AND lower(error_message) LIKE '%peer id invalid%'")
+    broken=await db.fetchall("SELECT q.id,p.channel_id FROM queue q JOIN pipeline_state p ON p.queue_id=q.id WHERE q.status='failed' AND q.current_stage IN (6,7) AND lower(q.error_message) LIKE '%channel_private%'")
+    for row in broken:
+        if row['channel_id']:await queries.remove_channel(int(row['channel_id']))
+        await queries.patch_state(int(row['id']),channel_id=None,invite_link=None,owner_promoted=0,forwarded_message_ids_json=[],batch_link=None,shortened_link=None,final_post_id=None,backup_done=0,backup_message_ids_json=[],catalog_added=0,promotion_done=0,promotion_link=None,promotion_post_id=None,promotion_sticker_id=None)
+        await db.execute("UPDATE queue SET status='pending',current_stage=4,error_message=NULL WHERE id=?",(int(row['id']),))
     await apply_saved_settings(queries)
     if durable_loaded:
         await seed_bootstrap_settings(queries)

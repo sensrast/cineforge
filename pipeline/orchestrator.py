@@ -209,6 +209,27 @@ class Orchestrator:
         except asyncio.CancelledError:
             raise
         except Exception as exc:
+            text=str(exc).lower()
+            # If Telegram has made the just-created source channel inaccessible,
+            # resume from channel creation instead of leaving a batch item failed.
+            # Earlier search/fetch results remain valid and are reused.
+            state_now=await self.ctx.db.state(qid)
+            broken_channel=(state_now['channel_id'] if state_now else None)
+            if broken_channel and stage in (6,7) and ('channel_private' in text or 'channel private' in text):
+                await self.ctx.db.remove_channel(int(broken_channel))
+                await self.ctx.db.patch_state(
+                    qid,channel_id=None,invite_link=None,owner_promoted=0,
+                    forwarded_message_ids_json=[],batch_link=None,shortened_link=None,
+                    final_post_id=None,backup_done=0,backup_message_ids_json=[],
+                    catalog_added=0,promotion_done=0,promotion_link=None,
+                    promotion_post_id=None,promotion_sticker_id=None,
+                )
+                await self.ctx.db.set_stage(qid,4,'pending')
+                await self.ctx.db.log('Created channel became inaccessible; safely recreating it from the saved fetched files','WARNING',qid)
+                await self._persist_state()
+                try:await notify_control_bot(self.ctx.cfg.control_token,self.ctx.cfg.owner_id,f'♻️ Recreating inaccessible channel for {movie}; fetched files were preserved.')
+                except Exception:pass
+                return
             log.exception("Pipeline failed for %s", movie)
             await self.ctx.db.fail(qid, str(exc))
             await self.ctx.db.log(str(exc), "ERROR", qid)
