@@ -36,6 +36,13 @@ class Orchestrator:
             await self.process(dict(row))
             await self.ctx.speed.delay("movie")
 
+    async def _persist_state(self) -> None:
+        """Durability outages must never terminate the queue worker."""
+        try:
+            await persist_state(self.ctx.db)
+        except Exception:
+            log.exception("Durable-state sync failed; local queue will continue and retry later")
+
     @staticmethod
     def _json(row, key: str) -> list:
         try:
@@ -60,7 +67,7 @@ class Orchestrator:
                         if chat.title and normalize_title(chat.title) == expected and "channel" in str(chat.type).lower():
                             invite = await self.ctx.speed.call(lambda c=chat: self.ctx.client.export_chat_invite_link(c.id), qid)
                             await self.ctx.db.register_channel(qid, movie, chat.id, invite, content_type)
-                            await persist_state(self.ctx.db)
+                            await self._persist_state()
                             existing = await self.ctx.db.find_channel_by_movie(movie, content_type)
                             break
                 if existing:
@@ -79,7 +86,7 @@ class Orchestrator:
                         text = str(exc).lower()
                         if any(marker in text for marker in ("channel_invalid", "channel_private", "peer_id_invalid", "peer id invalid", "not found", "deleted")):
                             await self.ctx.db.remove_channel(existing["channel_id"])
-                            await persist_state(self.ctx.db)
+                            await self._persist_state()
                         else:
                             raise
             state = await self.ctx.db.state(qid)
@@ -181,14 +188,14 @@ class Orchestrator:
             await self.ctx.db.finalize_channel(channel["channel_id"], batch, batch_short)
             await self.ctx.db.log(f"Completed {movie}", "INFO", qid)
             await notify_control_bot(self.ctx.cfg.control_token, self.ctx.cfg.owner_id, f'✅ Completed: {movie}\n{channel["invite_link"]}')
-            await persist_state(self.ctx.db)
+            await self._persist_state()
         except DeferredFloodWait as exc:
             reason=f"Telegram cooldown active for {exc.seconds}s; job automatically deferred at stage {stage}"
             await self.ctx.db.defer_floodwait(qid,exc.seconds,reason)
             if stage==4:
                 await self.ctx.db.set_setting("channel_creation_cooldown_until",str(int(time.time())+exc.seconds))
             await self.ctx.db.log(reason,"WARNING",qid)
-            await persist_state(self.ctx.db)
+            await self._persist_state()
             try:
                 hours,remainder=divmod(exc.seconds,3600);minutes,seconds=divmod(remainder,60)
                 duration=(f"{hours}h {minutes}m" if hours else f"{minutes}m {seconds}s")
@@ -196,7 +203,7 @@ class Orchestrator:
                     f"⏳ Telegram cooldown: {movie}\nStage {stage}/10 deferred for {duration}.\nThe worker will continue with other batch items and retry this movie automatically.")
             except Exception:pass
         except JobCancelled as exc:
-            await self.ctx.db.log(str(exc),"INFO",qid);await persist_state(self.ctx.db)
+            await self.ctx.db.log(str(exc),"INFO",qid);await self._persist_state()
             try:await notify_control_bot(self.ctx.cfg.control_token,self.ctx.cfg.owner_id,f"🛑 Cancelled: {movie}")
             except Exception:pass
         except asyncio.CancelledError:
@@ -205,7 +212,7 @@ class Orchestrator:
             log.exception("Pipeline failed for %s", movie)
             await self.ctx.db.fail(qid, str(exc))
             await self.ctx.db.log(str(exc), "ERROR", qid)
-            await persist_state(self.ctx.db)
+            await self._persist_state()
             try:
                 await notify_control_bot(self.ctx.cfg.control_token, self.ctx.cfg.owner_id, f"❌ Failed: {movie}\nStage {stage}/10\n{str(exc)[:700]}")
             except Exception:

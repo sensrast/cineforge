@@ -172,6 +172,9 @@ async def run():
     queries = Queries(db)
     durable_loaded=await restore_render_state(queries)
     await db.execute("UPDATE queue SET status='pending' WHERE status NOT IN ('pending','deferred','completed','failed','cancelled')")
+    # A Pyrogram layer switch used to clear numeric private-channel peers. Those
+    # jobs are safe to resume from their saved stage after the peer-cache fix.
+    await db.execute("UPDATE queue SET status='pending',error_message=NULL WHERE status='failed' AND lower(error_message) LIKE '%peer id invalid%'")
     await apply_saved_settings(queries)
     if durable_loaded:
         await seed_bootstrap_settings(queries)

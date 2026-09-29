@@ -60,6 +60,10 @@ async def _modernize_control_bot(ctx:PipelineContext,qid:int,channel_id:int,user
   return bool(result.get(channel_id))
  finally:
   await ctx.client.start()
+  # Restarting an in-memory Pyrogram client clears its peer cache. Rehydrate
+  # every dialog so numeric channel IDs (including backup storage) remain usable.
+  async for _dialog in ctx.client.get_dialogs(limit=500):
+   pass
 
 async def _find_owner(ctx:PipelineContext,channel_id:int):
  async for member in ctx.client.get_chat_members(channel_id,limit=500):

@@ -17,7 +17,15 @@ async def backup_movie(ctx:PipelineContext,qid:int,movie:str,source_channel_id:i
     raw=await ctx.db.setting("backup_channel","")
     if not raw:raise RuntimeError("Backup Storage is enabled but Backup Channel is not configured")
     target=_destination(raw)
-    chat=await ctx.speed.call(lambda:ctx.client.get_chat(target),qid)
+    try:
+        chat=await ctx.speed.call(lambda:ctx.client.get_chat(target),qid)
+    except (KeyError,ValueError) as exc:
+        # Numeric private-channel IDs require an access hash in Pyrogram's peer
+        # cache. A userbot layer switch/restart clears the in-memory cache.
+        if "peer" not in str(exc).lower() and "id not found" not in str(exc).lower():raise
+        async for _dialog in ctx.client.get_dialogs(limit=500):
+            pass
+        chat=await ctx.speed.call(lambda:ctx.client.get_chat(target),qid)
     target_id=chat.id
     qualities=sorted({item['quality'] for item in files},key=lambda q:{'480p':0,'720p':1,'1080p':2,'2160p':3}.get(q,99))
     header=await ctx.speed.call(lambda:ctx.client.send_message(target_id,f"🎬 {movie}\n⚡ {' | '.join(qualities)}\n🔗 Batch: {batch_link}"),qid)
