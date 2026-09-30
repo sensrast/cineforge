@@ -115,6 +115,8 @@ async def restore_render_state(queries: Queries) -> bool:
                 await queries.db.execute(f"INSERT OR IGNORE INTO {table}({','.join(names)}) VALUES({marks})",tuple(values[name] for name in names))
         await restore_rows("queue",state.get("queue",[]))
         await restore_rows("pipeline_state",state.get("pipeline",[]))
+        await restore_rows("manual_upload_sessions",state.get("manual_sessions",[]))
+        await restore_rows("manual_upload_files",state.get("manual_files",[]))
         for item in state.get("channels", []):
             await queries.db.execute(
                 "INSERT OR IGNORE INTO created_channels(movie_name,content_type,channel_id,invite_link,batch_link,shortened_link,owner_admin_confirmed) VALUES(?,?,?,?,?,?,?)",
@@ -204,7 +206,7 @@ async def run():
                 BotCommand("start", "Open the admin panel"), BotCommand("add", "Choose type for one title"),
                 BotCommand("movie", "Queue a movie directly"), BotCommand("series", "Queue a series directly"),
                 BotCommand("rebuild", "Force a clean movie rebuild"),
-                BotCommand("batch", "Choose type and queue multiple titles"), BotCommand("status", "Show live pipeline status"),
+                BotCommand("batch", "Choose type and queue multiple titles"), BotCommand("manual", "Upload files manually"), BotCommand("status", "Show live pipeline status"),
                 BotCommand("settings", "Open detailed settings"), BotCommand("logs", "Show recent activity"),
                 BotCommand("pause", "Pause the queue worker"), BotCommand("resume", "Resume the queue worker"),
                 BotCommand("cancel", "Cancel a pending queue item"), BotCommand("retry", "Retry a failed item"),

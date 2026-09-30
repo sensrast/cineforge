@@ -7,8 +7,9 @@ from utils.github_store import persist_state
 from control.keyboards import (
     SETTING_DEFS, CATEGORIES, display_value, home_keyboard, settings_root_keyboard,
     category_keyboard, field_keyboard, input_cancel_keyboard, confirmation_keyboard,
-    back_home_keyboard, status_keyboard, content_type_keyboard,
+    back_home_keyboard, status_keyboard, content_type_keyboard,manual_upload_keyboard,
 )
+from control.manual_upload import detect_quality,detect_episode,assign_qualities,summary
 
 CFG_ATTRS = {
     "api_id": "api_id", "api_hash": "api_hash", "owner_username": "owner_username",
@@ -146,6 +147,43 @@ class ControlHandlers:
     async def batch(self, update, context):
         await update.message.reply_text("Choose the content type for this batch.", reply_markup=content_type_keyboard("batchtype"))
 
+    async def manual(self, update, context):
+        await update.message.reply_text("📤 Manual Upload\n\nChoose whether these files are for a movie or series. No genre will be requested.",reply_markup=content_type_keyboard("manualtype"))
+
+    async def _manual_session(self):
+        return await self.db.db.fetchone("SELECT * FROM manual_upload_sessions WHERE owner_id=?",(self.owner_id,))
+
+    async def _manual_files(self):
+        return [dict(row) for row in await self.db.db.fetchall("SELECT * FROM manual_upload_files WHERE owner_id=? ORDER BY id",(self.owner_id,))]
+
+    async def _manual_review_text(self) -> str:
+        session=await self._manual_session();files=await self._manual_files()
+        if not session:return "No manual-upload session is active."
+        heading=f"📤 Manual Upload — {session['title'] or 'waiting for title'}\nType: {session['content_type'].title()}\nFiles: {len(files)}"
+        if not files:return heading+"\n\nSend video or document files, then press Done."
+        try:return heading+"\n\n"+summary(files,session['content_type'])
+        except ValueError as exc:return heading+f"\n\n⚠️ {exc}"
+
+    async def media(self,update,context):
+        session=await self._manual_session()
+        if not session or session['status']!='collecting':
+            return await update.message.reply_text("Press Manual Upload first, choose Movie or Series, and send the title before uploading files.",reply_markup=home_keyboard(self.runtime.running))
+        media=update.message.document or update.message.video
+        if not media:return
+        name=getattr(media,'file_name',None) or ''
+        caption=update.message.caption or ''
+        quality=detect_quality(name+' '+caption)
+        season,episode=detect_episode(name+' '+caption)
+        existing=await self.db.db.fetchone("SELECT id FROM manual_upload_files WHERE owner_id=? AND file_unique_id=?",(self.owner_id,media.file_unique_id))
+        if existing:return await update.message.reply_text("↩️ That Telegram file is already in this upload session.",reply_markup=manual_upload_keyboard())
+        await self.db.db.execute("INSERT INTO manual_upload_files(owner_id,message_id,file_unique_id,file_size,file_name,caption,explicit_quality,season,episode) VALUES(?,?,?,?,?,?,?,?,?)",(
+            self.owner_id,update.message.message_id,media.file_unique_id,int(getattr(media,'file_size',0) or 0),name,caption,quality,season,episode))
+        await persist_state(self.db)
+        files=await self._manual_files()
+        detected=f"detected as {quality}" if quality else "quality will be inferred by size"
+        episode_text=f", S{int(season or 1):02d}E{int(episode):02d}" if episode is not None else ''
+        await update.message.reply_text(f"✅ File {len(files)} received — {detected}{episode_text}.",reply_markup=manual_upload_keyboard())
+
     async def text(self, update, context):
         mode = context.user_data.get("input_mode"); text = update.message.text.strip()
         if mode == "phone":
@@ -187,6 +225,14 @@ class ControlHandlers:
             except Exception as exc:
                 await update.effective_chat.send_message(f"❌ {exc}\n\nPlease try again or press Cancel.", reply_markup=input_cancel_keyboard(key))
             return
+        session=await self._manual_session()
+        if mode=="manual_title" or (session and session['status']=='awaiting_title'):
+            if not text:return await update.message.reply_text("Title cannot be empty.")
+            await self.db.db.execute("UPDATE manual_upload_sessions SET title=?,status='collecting',updated_at=CURRENT_TIMESTAMP WHERE owner_id=?",(text,self.owner_id))
+            context.user_data.clear();await persist_state(self.db)
+            return await update.message.reply_text(
+                f"📤 {session['content_type'].title() if session else 'Manual'}: {text}\n\nSend or forward every video/document file now. Explicit 480p/720p/1080p/2160p text is respected; missing qualities are inferred by file size. Press Done after the last file.",
+                reply_markup=manual_upload_keyboard())
         if mode in {"batch", "single_typed"}:
             kind=context.user_data.get("content_type","movie")
             names=[line.strip() for line in text.splitlines() if line.strip()] if mode=="batch" else [text]
@@ -262,6 +308,40 @@ class ControlHandlers:
         if data.startswith("batchtype:"):
             kind=data.split(":",1)[1];context.user_data.clear();context.user_data.update(input_mode="batch",content_type=kind)
             return await self._edit(query,f"Send {kind} titles, one per line.",back_home_keyboard())
+        if data.startswith("manualtype:"):
+            kind=data.split(":",1)[1];context.user_data.clear();context.user_data['input_mode']='manual_title'
+            await self.db.db.execute("DELETE FROM manual_upload_files WHERE owner_id=?",(self.owner_id,))
+            await self.db.db.execute("INSERT INTO manual_upload_sessions(owner_id,content_type,title,status) VALUES(?,?,NULL,'awaiting_title') ON CONFLICT(owner_id) DO UPDATE SET content_type=excluded.content_type,title=NULL,status='awaiting_title',updated_at=CURRENT_TIMESTAMP",(self.owner_id,kind))
+            await persist_state(self.db)
+            return await self._edit(query,f"📤 Manual {kind.title()} Upload\n\nSend the title now. No genre will be requested.",back_home_keyboard())
+        if data.startswith("manual:"):
+            action=data.split(":",1)[1]
+            if action=='start':
+                return await self._edit(query,"📤 Manual Upload\n\nChoose Movie or Series. No genre will be requested.",content_type_keyboard('manualtype'))
+            session=await self._manual_session()
+            if action=='cancel':
+                await self.db.db.execute("DELETE FROM manual_upload_files WHERE owner_id=?",(self.owner_id,));await self.db.db.execute("DELETE FROM manual_upload_sessions WHERE owner_id=?",(self.owner_id,));context.user_data.clear();await persist_state(self.db)
+                return await self._edit(query,"🗑 Manual upload cancelled. No job was created.",home_keyboard(self.runtime.running))
+            if not session:return await self._edit(query,"This manual-upload session expired. Start a new one.",home_keyboard(self.runtime.running))
+            if action=='review':return await self._edit(query,await self._manual_review_text(),manual_upload_keyboard())
+            if action=='remove':
+                last=await self.db.db.fetchone("SELECT id FROM manual_upload_files WHERE owner_id=? ORDER BY id DESC LIMIT 1",(self.owner_id,))
+                if last:await self.db.db.execute("DELETE FROM manual_upload_files WHERE id=?",(last['id'],));await persist_state(self.db)
+                return await self._edit(query,await self._manual_review_text(),manual_upload_keyboard())
+            if action=='done':
+                files=await self._manual_files()
+                if not files:return await self._edit(query,"Send at least one video/document before pressing Done.",manual_upload_keyboard())
+                try:assigned=assign_qualities(files,session['content_type'])
+                except ValueError as exc:return await self._edit(query,f"⚠️ Cannot finish yet:\n\n{exc}",manual_upload_keyboard())
+                payload=[{
+                    'quality':item['quality'],'season':item.get('season'),'episode':item.get('episode'),
+                    'source_message_id':item['message_id'],'source_chat_id':self.owner_id,'manual_bot_api':True,
+                    'source_name':item.get('file_name') or item.get('caption') or f"Manual file {index}",
+                    'file_unique_id':item['file_unique_id'],'file_size':item.get('file_size',0),
+                } for index,item in enumerate(assigned,1)]
+                qid=await self.db.add_manual(session['title'],self.owner_id,session['content_type'],payload)
+                await self.db.db.execute("DELETE FROM manual_upload_files WHERE owner_id=?",(self.owner_id,));await self.db.db.execute("DELETE FROM manual_upload_sessions WHERE owner_id=?",(self.owner_id,));context.user_data.clear();await persist_state(self.db)
+                return await self._edit(query,f"✅ Manual {session['content_type']} queued as job #{qid}.\n\n{summary(files,session['content_type'])}\n\nMovie Hunt was skipped. The normal channel, batch-link, backup, catalog, folder, and promotion stages will continue automatically.",home_keyboard(self.runtime.running))
         if data.startswith("type:"):
             kind=data.split(":",1)[1];title=context.user_data.pop("pending_title","")
             if not title:return await self._edit(query,"The pending title expired. Send it again.",home_keyboard(self.runtime.running))

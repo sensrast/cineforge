@@ -2,6 +2,7 @@ PRAGMA foreign_keys=ON;
 CREATE TABLE IF NOT EXISTS queue (
  id INTEGER PRIMARY KEY AUTOINCREMENT, movie_name TEXT NOT NULL, search_query TEXT NOT NULL,
  content_type TEXT NOT NULL DEFAULT 'movie', force_rebuild INTEGER NOT NULL DEFAULT 0,
+ input_mode TEXT NOT NULL DEFAULT 'automatic',
  status TEXT NOT NULL DEFAULT 'pending', current_stage INTEGER NOT NULL DEFAULT 0,
  error_message TEXT, retry_count INTEGER NOT NULL DEFAULT 0, requested_by INTEGER,
  next_attempt_at TIMESTAMP,
@@ -26,6 +27,17 @@ CREATE TABLE IF NOT EXISTS created_channels (
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS logs (id INTEGER PRIMARY KEY AUTOINCREMENT, queue_id INTEGER, level TEXT DEFAULT 'INFO', message TEXT, timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS daily_stats (date TEXT PRIMARY KEY, channels_created INTEGER DEFAULT 0, floodwait_hits INTEGER DEFAULT 0, errors INTEGER DEFAULT 0);
+CREATE TABLE IF NOT EXISTS manual_upload_sessions (
+ owner_id INTEGER PRIMARY KEY, content_type TEXT NOT NULL DEFAULT 'movie', title TEXT,
+ status TEXT NOT NULL DEFAULT 'awaiting_title', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+ updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS manual_upload_files (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, owner_id INTEGER NOT NULL, message_id INTEGER NOT NULL,
+ file_unique_id TEXT NOT NULL, file_size INTEGER NOT NULL DEFAULT 0, file_name TEXT, caption TEXT,
+ explicit_quality TEXT, season INTEGER, episode INTEGER, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+ UNIQUE(owner_id,file_unique_id)
+);
 INSERT OR IGNORE INTO settings(key,value) VALUES
  ('limits_enabled','false'),('delay_between_actions','0.0'),('delay_between_movies','0.0'),
  ('max_channels_per_day','0'),('desired_qualities','480p,720p,1080p,2160p,4K'),

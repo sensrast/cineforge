@@ -1,7 +1,7 @@
 from pyrogram.enums import ParseMode
 from pipeline.context import PipelineContext
 from utils.text_parser import format_template
-from utils.notifications import send_channel_sticker
+from utils.notifications import send_channel_sticker,bot_api_request
 
 async def run(ctx:PipelineContext,qid:int,movie:str,channel_id:int,files:list[dict])->list[dict]:
  order={'480p':0,'720p':1,'1080p':2,'2160p':3};out=[]
@@ -21,8 +21,18 @@ async def run(ctx:PipelineContext,qid:int,movie:str,channel_id:int,files:list[di
   caption=format_template(ctx.cfg.caption,movie=movie,quality=f['quality'],owner_username=ctx.cfg.owner_username,season=str(f.get('season') or ''),episode=str(f.get('episode') or ''),episode_label=episode_label)
   if episode_label and '{episode' not in ctx.cfg.caption.lower() and episode_label not in caption:
    caption += f"\n📺 **Episode:** {episode_label}"
-  copied=await ctx.speed.call(lambda f=f,c=caption:ctx.client.copy_message(channel_id,ctx.cfg.source_bot,f['source_message_id'],caption=c,parse_mode=ParseMode.MARKDOWN),qid)
-  out.append({'quality':f['quality'],'season':f.get('season'),'episode':f.get('episode'),'sticker_message_id':pre_sticker_message_id,'channel_message_id':copied.id})
+  if f.get('manual_bot_api'):
+   # The control bot received the owner's upload, so it can copy the existing
+   # Telegram file directly into the channel without downloading/re-uploading.
+   result=await bot_api_request(ctx.cfg.control_token,'copyMessage',{
+    'chat_id':channel_id,'from_chat_id':int(f['source_chat_id']),
+    'message_id':int(f['source_message_id']),'caption':caption.replace('**',''),
+   })
+   copied_id=int(result['message_id'])
+  else:
+   copied=await ctx.speed.call(lambda f=f,c=caption:ctx.client.copy_message(channel_id,ctx.cfg.source_bot,f['source_message_id'],caption=c,parse_mode=ParseMode.MARKDOWN),qid)
+   copied_id=copied.id
+  out.append({'quality':f['quality'],'season':f.get('season'),'episode':f.get('episode'),'sticker_message_id':pre_sticker_message_id,'channel_message_id':copied_id})
   await ctx.speed.delay()
  end_message_id=await send_channel_sticker(ctx.cfg.control_token,channel_id,end_sticker)
  if out:out[-1]['end_sticker_message_id']=end_message_id

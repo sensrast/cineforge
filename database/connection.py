@@ -24,6 +24,8 @@ class Database:
                 await self.conn.execute("ALTER TABLE queue ADD COLUMN force_rebuild INTEGER NOT NULL DEFAULT 0")
             if table == "queue" and "next_attempt_at" not in columns:
                 await self.conn.execute("ALTER TABLE queue ADD COLUMN next_attempt_at TIMESTAMP")
+            if table == "queue" and "input_mode" not in columns:
+                await self.conn.execute("ALTER TABLE queue ADD COLUMN input_mode TEXT NOT NULL DEFAULT 'automatic'")
             if table == "created_channels" and "owner_admin_confirmed" not in columns:
                 await self.conn.execute("ALTER TABLE created_channels ADD COLUMN owner_admin_confirmed INTEGER DEFAULT 0")
         state_columns={row[1] for row in await (await self.conn.execute("PRAGMA table_info(pipeline_state)")).fetchall()}

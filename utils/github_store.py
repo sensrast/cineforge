@@ -47,6 +47,8 @@ async def persist_state(db) -> bool:
         for row in queue_rows:
             state_row=await db.db.fetchone("SELECT * FROM pipeline_state WHERE queue_id=?",(row["id"],))
             if state_row:pipeline.append(dict(state_row))
+        manual_sessions=[dict(row) for row in await db.db.fetchall("SELECT * FROM manual_upload_sessions")]
+        manual_files=[dict(row) for row in await db.db.fetchall("SELECT * FROM manual_upload_files ORDER BY id")]
         async with aiohttp.ClientSession(headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as session:
             for attempt in range(3):
                 sha = None; remote_settings = {}
@@ -63,7 +65,7 @@ async def persist_state(db) -> bool:
                 # Never erase a durable setting merely because a fresh local
                 # SQLite database did not contain that key. Local values win.
                 merged_settings=dict(remote_settings);merged_settings.update(local_settings)
-                state={"version":3,"settings":merged_settings,"channels":local_channels,"queue":active_queue,"pipeline":pipeline}
+                state={"version":4,"settings":merged_settings,"channels":local_channels,"queue":active_queue,"pipeline":pipeline,"manual_sessions":manual_sessions,"manual_files":manual_files}
                 content=base64.b64encode(json.dumps(state,ensure_ascii=False,separators=(",", ":")).encode()).decode()
                 payload={"message":"Update CineForge runtime state","content":content}
                 if sha:payload["sha"]=sha
