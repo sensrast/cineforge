@@ -1,6 +1,7 @@
 """Optional server-side media backup to a private Telegram channel."""
 from __future__ import annotations
 from pipeline.context import PipelineContext
+from utils.safe_dialogs import iter_dialogs
 
 def _destination(value: str):
     value=value.strip()
@@ -23,7 +24,7 @@ async def backup_movie(ctx:PipelineContext,qid:int,movie:str,source_channel_id:i
         # Numeric private-channel IDs require an access hash in Pyrogram's peer
         # cache. A userbot layer switch/restart clears the in-memory cache.
         if "peer" not in str(exc).lower() and "id not found" not in str(exc).lower():raise
-        async for _dialog in ctx.client.get_dialogs(limit=500):
+        async for _dialog in iter_dialogs(ctx.client,limit=500):
             pass
         chat=await ctx.speed.call(lambda:ctx.client.get_chat(target),qid)
     target_id=chat.id

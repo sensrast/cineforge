@@ -8,6 +8,7 @@ from pipeline.context import PipelineContext
 from utils.notifications import notify_control_bot,get_control_bot_identity,bot_api_request
 from utils.github_store import persist_state
 from utils.modern_admin import grant_control_bot_rights
+from utils.safe_dialogs import iter_dialogs
 log=logging.getLogger(__name__)
 
 OWNER_PRIVILEGES=ChatPrivileges(
@@ -62,7 +63,7 @@ async def _modernize_control_bot(ctx:PipelineContext,qid:int,channel_id:int,user
   await ctx.client.start()
   # Restarting an in-memory Pyrogram client clears its peer cache. Rehydrate
   # every dialog so numeric channel IDs (including backup storage) remain usable.
-  async for _dialog in ctx.client.get_dialogs(limit=500):
+  async for _dialog in iter_dialogs(ctx.client,limit=500):
    pass
 
 async def _find_owner(ctx:PipelineContext,channel_id:int):

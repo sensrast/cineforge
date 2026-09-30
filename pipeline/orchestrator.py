@@ -8,6 +8,7 @@ from pipeline.context import PipelineContext
 from utils.notifications import notify_control_bot
 from utils.github_store import persist_state
 from utils.text_parser import normalize_title, format_template
+from utils.safe_dialogs import iter_dialogs
 from pipeline.stages import (
     stage_1_search, stage_2_filter, stage_3_fetch, stage_4_channel, stage_5_promote,
     stage_6_copy, stage_7_batch, stage_8_shorten, stage_9_post,
@@ -62,7 +63,7 @@ class Orchestrator:
                     # Recover movie channels created before durable registry support by
                     # scanning the userbot's existing channel dialogs.
                     expected = normalize_title(format_template(self.ctx.cfg.channel_name, movie=movie, owner_username=self.ctx.cfg.owner_username))
-                    async for dialog in self.ctx.client.get_dialogs(limit=500):
+                    async for dialog in iter_dialogs(self.ctx.client,limit=500):
                         chat = dialog.chat
                         if chat.title and normalize_title(chat.title) == expected and "channel" in str(chat.type).lower():
                             invite = await self.ctx.speed.call(lambda c=chat: self.ctx.client.export_chat_invite_link(c.id), qid)

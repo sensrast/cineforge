@@ -8,6 +8,7 @@ from pyrogram.raw.types import DialogFilter,DialogFilterChatlist,InputChatlistDi
 from pipeline.context import PipelineContext
 from utils.github_store import persist_state
 from utils.notifications import notify_control_bot
+from utils.safe_dialogs import iter_dialogs
 
 def _peer_key(peer):
     for name in ("channel_id","chat_id","user_id"):
@@ -39,7 +40,7 @@ async def ensure_created_channels_folder(ctx:PipelineContext,channel_ids:list[in
         known={_peer_key(peer) for peer in pinned+included}
         # String sessions do not retain Pyrogram's peer cache. Reading dialogs
         # once makes numeric -100... channel IDs resolvable after every restart.
-        async for _dialog in ctx.client.get_dialogs(limit=500):
+        async for _dialog in iter_dialogs(ctx.client,limit=500):
             pass
         for channel_id in channel_ids:
             try:peer=await ctx.speed.call(lambda cid=channel_id:ctx.client.resolve_peer(cid),qid)
