@@ -27,8 +27,8 @@ def detect_episode(text:str)->tuple[int|None,int|None]:
  return None,None
 
 def _labels(count:int)->list[str]:
- if count==1:return ['1080p']
- if count==2:return ['720p','1080p']
+ if count==1:return ['480p']
+ if count==2:return ['480p','720p']
  if count==3:return ['480p','720p','1080p']
  if count==4:return ['480p','720p','1080p','2160p']
  raise ValueError('More than four files belong to the same movie/episode. Add season/episode labels to series filenames or split the upload.')

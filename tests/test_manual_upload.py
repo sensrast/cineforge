@@ -9,6 +9,8 @@ def test_quality_detection():
  assert detect_quality('no label.mkv') is None
 
 def test_size_inference_three_and_four_files():
+ assert [x['quality'] for x in assign_qualities(rows(1))]==['480p']
+ assert [x['quality'] for x in assign_qualities(rows(2))]==['480p','720p']
  assert [x['quality'] for x in assign_qualities(rows(3))]==['480p','720p','1080p']
  assert [x['quality'] for x in assign_qualities(rows(4))]==['480p','720p','1080p','2160p']
 
