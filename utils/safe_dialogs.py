@@ -36,5 +36,6 @@ async def iter_dialogs(client,limit:int=500):
    if current>=total:return
   if anchor is None:return
   offset_id=anchor.top_message.id
-  offset_date=utils.datetime_to_timestamp(anchor.top_message.date)
+  date=anchor.top_message.date
+  offset_date=utils.datetime_to_timestamp(date) if hasattr(date,'timestamp') else int(date or 0)
   offset_peer=await client.resolve_peer(anchor.chat.id)
