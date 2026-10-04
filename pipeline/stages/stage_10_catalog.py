@@ -138,10 +138,12 @@ async def run(ctx: PipelineContext, qid: int, movie: str, invite: str, source_me
     message = await _click_and_wait(ctx, qid, language_panel, language_patterns)
     message = await _click_and_wait(ctx, qid, message, [r"ongoing" if series else r"completed"])
 
-    # Anime Zone now shows a parts keyboard after status selection. CineForge
-    # creates one channel/post per queue item, so select Single Part and do not
-    # send the legacy numeric "0" response.
-    message = await _click_and_wait(ctx, qid, message, [r"single\s*part", r"(?:^|\D)1\s*part(?:\D|$)"])
+    # Anime Zone now asks whether the upload is one file or split into parts.
+    # CineForge creates one complete movie post per queue item, so select the
+    # exact "Single full movie" option and do not send the legacy numeric "0".
+    message = await _click_and_wait(ctx, qid, message, [
+        r"single\s*full\s*movie", r"single.*full.*movie", r"single\s*part",
+    ])
     message = await _click_and_wait(ctx, qid, message, [r"safe", r"no", r"❌"])
     await _click_and_wait(ctx, qid, message, [r"publish", r"submit"])
 
