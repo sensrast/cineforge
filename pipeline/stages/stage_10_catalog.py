@@ -137,7 +137,11 @@ async def run(ctx: PipelineContext, qid: int, movie: str, invite: str, source_me
     language_panel = await _wait_visible_button(ctx, language_patterns)
     message = await _click_and_wait(ctx, qid, language_panel, language_patterns)
     message = await _click_and_wait(ctx, qid, message, [r"ongoing" if series else r"completed"])
-    message = await _send_and_wait(ctx, qid, str(len(episode_keys)) if series else "0")
+
+    # Anime Zone now shows a parts keyboard after status selection. CineForge
+    # creates one channel/post per queue item, so select Single Part and do not
+    # send the legacy numeric "0" response.
+    message = await _click_and_wait(ctx, qid, message, [r"single\s*part", r"(?:^|\D)1\s*part(?:\D|$)"])
     message = await _click_and_wait(ctx, qid, message, [r"safe", r"no", r"❌"])
     await _click_and_wait(ctx, qid, message, [r"publish", r"submit"])
 
