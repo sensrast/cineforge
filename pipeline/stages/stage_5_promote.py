@@ -20,6 +20,11 @@ FILESTORE_PRIVILEGES=ChatPrivileges(can_manage_chat=True,can_post_messages=True,
 CONTROL_PRIVILEGES=ChatPrivileges(can_manage_chat=True,can_post_messages=True,can_edit_messages=True,can_delete_messages=True,can_invite_users=True,can_promote_members=True)
 _WATCHERS:set[asyncio.Task]=set()
 _RECONCILER:asyncio.Task|None=None
+# Telethon and Pyrogram share the same user authorization key but announce
+# different MTProto layers. Never let reconciliation use Pyrogram while the
+# short Layer-229 rights pass is switching that shared key.
+_PROMOTION_LOCK=asyncio.Lock()
+_CLIENT_READY=asyncio.Event();_CLIENT_READY.set()
 
 async def _grant_modern_botapi_rights(ctx:PipelineContext,qid:int|None,channel_id:int,user_id:int,full:bool=False)->bool:
  payload={
@@ -54,24 +59,28 @@ async def add_control_bot_admin(ctx:PipelineContext,qid:int,channel_id:int)->int
  await ctx.db.log('Control bot added as administrator for inline-button posts','INFO',qid);return bot.id
 
 async def _modernize_control_bot(ctx:PipelineContext,qid:int,channel_id:int,username:str)->bool:
- """Switch layers only while Pyrogram is offline; shared auth keys cannot mix layers."""
- await ctx.client.stop()
- try:
-  result=await grant_control_bot_rights(ctx.cfg,[channel_id],username,ctx.cfg.owner_id)
-  return bool(result.get(channel_id))
- finally:
-  await ctx.client.start()
-  # Restarting an in-memory Pyrogram client clears its peer cache. Rehydrate
-  # every dialog so numeric channel IDs (including backup storage) remain usable.
-  async for _dialog in iter_dialogs(ctx.client,limit=500):
-   pass
+ """Switch layers only while all promotion/reconciliation calls are paused."""
+ async with _PROMOTION_LOCK:
+  _CLIENT_READY.clear()
+  try:
+   await ctx.client.stop()
+   result=await grant_control_bot_rights(ctx.cfg,[channel_id],username,ctx.cfg.owner_id)
+   return bool(result.get(channel_id))
+  finally:
+   try:
+    await ctx.client.start()
+    # Restarting an in-memory Pyrogram client can leave numeric peers uncached.
+    async for _dialog in iter_dialogs(ctx.client,limit=500):
+     pass
+   finally:
+    _CLIENT_READY.set()
 
 async def _find_owner(ctx:PipelineContext,channel_id:int):
  async for member in ctx.client.get_chat_members(channel_id,limit=500):
   if member.user and member.user.id==ctx.cfg.owner_id:return member
  return None
 
-async def _promote_owner(ctx:PipelineContext,qid:int|None,channel_id:int,title:str,notify:bool=True)->bool:
+async def _promote_owner_unlocked(ctx:PipelineContext,qid:int|None,channel_id:int,title:str,notify:bool=True)->bool:
  me=await ctx.client.get_me()
  if me.id==ctx.cfg.owner_id:return True
  member=await _find_owner(ctx,channel_id)
@@ -82,7 +91,7 @@ async def _promote_owner(ctx:PipelineContext,qid:int|None,channel_id:int,title:s
  if not modern_granted:
   await ctx.speed.call(lambda:ctx.client.promote_chat_member(channel_id,member.user.id,OWNER_PRIVILEGES),qid)
  check=await bot_api_request(ctx.cfg.control_token,'getChatMember',{'chat_id':channel_id,'user_id':member.user.id})
- verified=bool(check.get('result',{}).get('can_send_welcome_messages'))
+ verified=bool(check.get('can_send_welcome_messages'))
  row=await ctx.db.created_by_channel(channel_id);was_confirmed=bool(row and row['owner_admin_confirmed'])
  await ctx.db.db.execute('UPDATE created_channels SET owner_admin_confirmed=? WHERE channel_id=?',(int(verified),channel_id))
  if not verified:
@@ -93,6 +102,11 @@ async def _promote_owner(ctx:PipelineContext,qid:int|None,channel_id:int,title:s
  if notify and not was_confirmed:
   await notify_control_bot(ctx.cfg.control_token,ctx.cfg.owner_id,f'✅ You are now a full administrator of {title}.')
  return True
+
+async def _promote_owner(ctx:PipelineContext,qid:int|None,channel_id:int,title:str,notify:bool=True)->bool:
+ await _CLIENT_READY.wait()
+ async with _PROMOTION_LOCK:
+  return await _promote_owner_unlocked(ctx,qid,channel_id,title,notify)
 
 async def _one_shot_owner_check(ctx:PipelineContext,qid:int,channel_id:int,title:str)->None:
  try:await _promote_owner(ctx,qid,channel_id,title)

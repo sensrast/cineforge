@@ -66,7 +66,16 @@ class Orchestrator:
                     async for dialog in iter_dialogs(self.ctx.client,limit=500):
                         chat = dialog.chat
                         if chat.title and normalize_title(chat.title) == expected and "channel" in str(chat.type).lower():
-                            invite = await self.ctx.speed.call(lambda c=chat: self.ctx.client.export_chat_invite_link(c.id), qid)
+                            try:
+                                invite = await self.ctx.speed.call(lambda c=chat: self.ctx.client.export_chat_invite_link(c.id), qid)
+                            except Exception as exc:
+                                # Old/duplicate channels can remain in the dialog list after
+                                # this account loses admin access. They are problematic, not a
+                                # valid duplicate to reuse; continue scanning or create anew.
+                                text=str(exc).lower()
+                                if any(marker in text for marker in ('chat_admin_required','channel_private','peer_id_invalid','peer id invalid','deleted')):
+                                    continue
+                                raise
                             await self.ctx.db.register_channel(qid, movie, chat.id, invite, content_type)
                             await self._persist_state()
                             existing = await self.ctx.db.find_channel_by_movie(movie, content_type)
@@ -85,7 +94,7 @@ class Orchestrator:
                         return
                     except Exception as exc:
                         text = str(exc).lower()
-                        if any(marker in text for marker in ("channel_invalid", "channel_private", "peer_id_invalid", "peer id invalid", "not found", "deleted")):
+                        if any(marker in text for marker in ("channel_invalid", "channel_private", "chat_admin_required", "peer_id_invalid", "peer id invalid", "not found", "deleted")):
                             await self.ctx.db.remove_channel(existing["channel_id"])
                             await self._persist_state()
                         else:
