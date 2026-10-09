@@ -67,7 +67,7 @@ async def run(ctx:PipelineContext,qid:int,movie:str,channel_id:int,invite_link:s
     image=await ctx.db.setting("promotion_image","")
     sticker=await ctx.db.setting("promotion_updates_sticker","")
     updates=await ctx.db.setting("promotion_updates_channel","@In_hindi_dubbed_movies")
-    provider=(await ctx.db.setting("promotion_link_provider","Link_providerobot")).lstrip("@")
+    provider=(await ctx.db.setting("promotion_link_provider","Yclinkproviderbot")).lstrip("@")
     if not image:raise RuntimeError("Updates Promotion is enabled but Promotion Image is not configured")
     if not sticker:raise RuntimeError("Updates Promotion is enabled but Updates Post Sticker is not configured")
     if not updates:raise RuntimeError("Updates Promotion is enabled but Updates Channel is not configured")
