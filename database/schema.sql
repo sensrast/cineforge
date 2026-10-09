@@ -38,6 +38,27 @@ CREATE TABLE IF NOT EXISTS manual_upload_files (
  explicit_quality TEXT, season INTEGER, episode INTEGER, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
  UNIQUE(owner_id,file_unique_id)
 );
+CREATE TABLE IF NOT EXISTS mirror_sources (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, source_chat_id INTEGER UNIQUE NOT NULL, source_ref TEXT,
+ source_title TEXT NOT NULL, destination_chat_id INTEGER, invite_link TEXT,
+ status TEXT NOT NULL DEFAULT 'awaiting_confirmation', current_season INTEGER DEFAULT 0,
+ current_episode INTEGER DEFAULT 0, last_source_message_id INTEGER DEFAULT 0,
+ created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS mirror_season_stickers (
+ source_id INTEGER NOT NULL REFERENCES mirror_sources(id) ON DELETE CASCADE,
+ season INTEGER NOT NULL, sticker_file_id TEXT NOT NULL, PRIMARY KEY(source_id,season)
+);
+CREATE TABLE IF NOT EXISTS mirror_seen (
+ source_id INTEGER NOT NULL REFERENCES mirror_sources(id) ON DELETE CASCADE,
+ source_message_id INTEGER NOT NULL, PRIMARY KEY(source_id,source_message_id)
+);
+CREATE TABLE IF NOT EXISTS mirror_pending (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, source_id INTEGER NOT NULL REFERENCES mirror_sources(id) ON DELETE CASCADE,
+ source_message_id INTEGER NOT NULL, season INTEGER NOT NULL, episode INTEGER NOT NULL,
+ quality TEXT, file_size INTEGER DEFAULT 0, file_name TEXT, added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+ UNIQUE(source_id,source_message_id)
+);
 INSERT OR IGNORE INTO settings(key,value) VALUES
  ('limits_enabled','false'),('delay_between_actions','0.0'),('delay_between_movies','0.0'),
  ('max_channels_per_day','0'),('desired_qualities','480p,720p,1080p,2160p,4K'),

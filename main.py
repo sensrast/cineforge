@@ -19,6 +19,7 @@ from userbot.login_manager import LoginManager
 from pipeline.context import PipelineContext
 from pipeline.orchestrator import Orchestrator
 from pipeline.stages.stage_5_promote import register as register_promote, stop_watchers as stop_promotion_watchers
+from pipeline.source_mirror import register as register_mirrors, stop as stop_mirrors
 from pipeline.channel_folder import ensure_created_channels_folder
 from pipeline.promotion import upgrade_promotion_template
 from control.bot import build_control_bot
@@ -71,6 +72,7 @@ class UserbotRuntime:
                 context = PipelineContext(client, self.cfg, self.db, speed)
                 register_promote(context)
                 await ensure_created_channels_folder(context,channel_ids)
+                await register_mirrors(context)
                 worker = Orchestrator(context)
                 task = asyncio.create_task(worker.run_forever(), name="pipeline-worker")
                 self.client, self.worker, self.task = client, worker, task
@@ -88,6 +90,7 @@ class UserbotRuntime:
     async def stop(self) -> None:
         async with self.lock:
             if self.worker: self.worker.stop_event.set()
+            await stop_mirrors()
             await stop_promotion_watchers()
             if self.task:
                 try: await asyncio.wait_for(self.task, timeout=30)
@@ -117,6 +120,10 @@ async def restore_render_state(queries: Queries) -> bool:
         await restore_rows("pipeline_state",state.get("pipeline",[]))
         await restore_rows("manual_upload_sessions",state.get("manual_sessions",[]))
         await restore_rows("manual_upload_files",state.get("manual_files",[]))
+        await restore_rows("mirror_sources",state.get("mirror_sources",[]))
+        await restore_rows("mirror_season_stickers",state.get("mirror_stickers",[]))
+        await restore_rows("mirror_seen",state.get("mirror_seen",[]))
+        await restore_rows("mirror_pending",state.get("mirror_pending",[]))
         for item in state.get("channels", []):
             await queries.db.execute(
                 "INSERT OR IGNORE INTO created_channels(movie_name,content_type,channel_id,invite_link,batch_link,shortened_link,owner_admin_confirmed) VALUES(?,?,?,?,?,?,?)",

@@ -8,7 +8,9 @@ from control.keyboards import (
     SETTING_DEFS, CATEGORIES, display_value, home_keyboard, settings_root_keyboard,
     category_keyboard, field_keyboard, input_cancel_keyboard, confirmation_keyboard,
     back_home_keyboard, status_keyboard, content_type_keyboard,manual_upload_keyboard,
+    mirror_panel_keyboard,mirror_confirm_keyboard,
 )
+from pipeline.source_mirror import create_source,save_season_sticker,missing_seasons
 from control.manual_upload import detect_quality,detect_episode,assign_qualities,summary
 
 CFG_ATTRS = {
@@ -184,8 +186,39 @@ class ControlHandlers:
         episode_text=f", S{int(season or 1):02d}E{int(episode):02d}" if episode is not None else ''
         await update.message.reply_text(f"✅ File {len(files)} received — {detected}{episode_text}.",reply_markup=manual_upload_keyboard())
 
+    async def _mirror_panel(self,query=None,message=None):
+        rows=await self.db.db.fetchall('SELECT * FROM mirror_sources ORDER BY id DESC')
+        text='🔄 Source Mirror\n\nConnect a channel where the userbot account is already a subscriber. Historical video/document files will be imported, then future files will sync after a 5-minute quality buffer.'
+        if query:await self._edit(query,text,mirror_panel_keyboard(rows))
+        else:await message.reply_text(text,reply_markup=mirror_panel_keyboard(rows))
+
+    async def _resolve_mirror_source(self,ref):
+        if not self.runtime.running:raise RuntimeError('Userbot must be connected first.')
+        chat=await self.runtime.client.get_chat(ref)
+        if 'channel' not in str(chat.type).lower():raise RuntimeError('Selected chat is not a channel.')
+        return {'chat_id':chat.id,'title':chat.title or str(chat.id),'ref':str(ref)}
+
+    async def source_forward(self,update,context):
+        if context.user_data.get('input_mode')!='mirror_source':
+            if update.message.document or update.message.video:return await self.media(update,context)
+            return
+        origin=getattr(update.message,'forward_origin',None);chat=getattr(origin,'chat',None)
+        if not chat:return await update.message.reply_text('Forward a channel post (with forward tag), or send @username / t.me link / numeric channel ID.')
+        try:candidate=await self._resolve_mirror_source(chat.id)
+        except Exception as exc:return await update.message.reply_text(f'❌ Could not resolve source: {exc}')
+        context.user_data['mirror_candidate']=candidate;context.user_data.pop('input_mode',None)
+        await update.message.reply_text(f"Confirm source channel:\n\n{candidate['title']}\nID: {candidate['chat_id']}\n\nA same-name destination channel will be created.",reply_markup=mirror_confirm_keyboard())
+
     async def text(self, update, context):
         mode = context.user_data.get("input_mode"); text = update.message.text.strip()
+        if mode=='mirror_source':
+            ref=text
+            if 't.me/' in ref:ref='@'+ref.rstrip('/').rsplit('/',1)[-1]
+            elif ref.lstrip('-').isdigit():ref=int(ref)
+            try:candidate=await self._resolve_mirror_source(ref)
+            except Exception as exc:return await update.message.reply_text(f'❌ Could not resolve source: {exc}\nSend another source or cancel.')
+            context.user_data['mirror_candidate']=candidate;context.user_data.pop('input_mode',None)
+            return await update.message.reply_text(f"Confirm source channel:\n\n{candidate['title']}\nID: {candidate['chat_id']}\n\nA same-name destination channel will be created.",reply_markup=mirror_confirm_keyboard())
         if mode == "phone":
             try:
                 await self.login.send_code(self.owner_id, text); context.user_data["input_mode"] = "otp"
@@ -302,6 +335,29 @@ class ControlHandlers:
 
     async def callback(self, update, context):
         query = update.callback_query; await query.answer(); data = query.data
+        if data.startswith('mirror:'):
+            parts=data.split(':');action=parts[1]
+            if action=='panel':return await self._mirror_panel(query=query)
+            if action=='add':
+                context.user_data.clear();context.user_data['input_mode']='mirror_source'
+                return await self._edit(query,'Send @username, t.me link, numeric channel ID, or forward any post from the source channel.\n\nThe userbot account must already be subscribed.',back_home_keyboard())
+            if action=='cancel':context.user_data.clear();return await self._mirror_panel(query=query)
+            if action=='confirm':
+                candidate=context.user_data.get('mirror_candidate')
+                if not candidate:return await self._edit(query,'Source confirmation expired. Select it again.',mirror_panel_keyboard())
+                if not self.runtime.running:return await self._edit(query,'Userbot is not connected.',back_home_keyboard())
+                try:
+                    source_id,seasons,invite=await create_source(self.runtime.worker.ctx,candidate['chat_id'],candidate['ref'],candidate['title'])
+                except Exception as exc:return await self._edit(query,f'❌ Could not create mirror: {exc}',back_home_keyboard())
+                context.user_data.clear()
+                if seasons:
+                    context.user_data.update(input_mode='mirror_sticker',mirror_source_id=source_id,mirror_seasons=seasons)
+                    return await self._edit(query,f"✅ Destination created:\n{invite}\n\nNow send the custom sticker for Season {seasons[0]}. The existing End sticker will be used at season boundaries.",back_home_keyboard())
+                return await self._edit(query,f'✅ Mirror connected and historical sync started.\n{invite}',home_keyboard(self.runtime.running))
+            if action=='view':
+                source_id=int(parts[2]);row=await self.db.db.fetchone('SELECT * FROM mirror_sources WHERE id=?',(source_id,));missing=await missing_seasons(self.runtime.worker.ctx,source_id) if row and self.runtime.running else []
+                if missing:context.user_data.update(input_mode='mirror_sticker',mirror_source_id=source_id,mirror_seasons=missing)
+                return await self._edit(query,(f"🔄 {row['source_title']}\nStatus: {row['status']}\nDestination: {row['invite_link']}"+(f"\n\nSend Season {missing[0]} sticker now." if missing else '')) if row else 'Mirror not found.',mirror_panel_keyboard())
         if data.startswith("addmode:"):
             kind=data.split(":",1)[1];context.user_data.clear();context.user_data.update(input_mode="single_typed",content_type=kind)
             return await self._edit(query,f"Send the {kind} title.",back_home_keyboard())
@@ -411,6 +467,14 @@ class ControlHandlers:
         await update.message.reply_text(f"✅ {SETTING_DEFS[key]['title']} saved.",reply_markup=field_keyboard(key))
 
     async def sticker(self, update, context):
+        if context.user_data.get('input_mode')=='mirror_sticker':
+            source_id=int(context.user_data['mirror_source_id']);seasons=list(context.user_data.get('mirror_seasons') or [])
+            if not seasons:return await update.message.reply_text('No season sticker is pending.',reply_markup=home_keyboard(self.runtime.running))
+            season=int(seasons[0]);missing=await save_season_sticker(self.runtime.worker.ctx,source_id,season,update.message.sticker.file_id)
+            if missing:
+                context.user_data['mirror_seasons']=missing
+                return await update.message.reply_text(f'✅ Season {season} sticker saved. Now send the sticker for Season {missing[0]}.',reply_markup=back_home_keyboard())
+            context.user_data.clear();return await update.message.reply_text(f'✅ Season {season} sticker saved. Historical sync started.',reply_markup=home_keyboard(self.runtime.running))
         key = context.user_data.get("setting_key")
         if context.user_data.get("input_mode") != "setting" or not key or SETTING_DEFS.get(key, {}).get("kind") != "sticker":
             return await update.message.reply_text("Open Settings → Channel & Captions and choose a sticker slot first.", reply_markup=back_home_keyboard())

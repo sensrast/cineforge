@@ -79,7 +79,7 @@ def home_keyboard(logged_in: bool) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("✅ Userbot Connected" if logged_in else "🔐 Login Userbot", callback_data="auth:status" if logged_in else "auth:start")],
         [InlineKeyboardButton("🎬 Add Movie", callback_data="addmode:movie"), InlineKeyboardButton("📺 Add Series", callback_data="addmode:series")],
-        [InlineKeyboardButton("📤 Manual Upload", callback_data="manual:start")],
+        [InlineKeyboardButton("📤 Manual Upload", callback_data="manual:start"), InlineKeyboardButton("🔄 Source Mirror", callback_data="mirror:panel")],
         [InlineKeyboardButton("⚙️ Settings", callback_data="nav:settings"), InlineKeyboardButton("📊 Live Status", callback_data="nav:status")],
         [InlineKeyboardButton("📝 Recent Logs", callback_data="nav:logs"), InlineKeyboardButton("❓ Help", callback_data="nav:help")],
     ])
@@ -89,6 +89,16 @@ def content_type_keyboard(prefix: str = "type") -> InlineKeyboardMarkup:
         [InlineKeyboardButton("🎬 Movie", callback_data=f"{prefix}:movie"), InlineKeyboardButton("📺 Series", callback_data=f"{prefix}:series")],
         [InlineKeyboardButton("⬅️ Back to Home", callback_data="nav:home")],
     ])
+
+def mirror_panel_keyboard(rows=()) -> InlineKeyboardMarkup:
+    buttons=[[InlineKeyboardButton("➕ Connect Source Channel",callback_data="mirror:add")]]
+    for row in rows:
+        buttons.append([InlineKeyboardButton(f"{row['source_title']} — {row['status']}",callback_data=f"mirror:view:{row['id']}")])
+    buttons.append([InlineKeyboardButton("⬅️ Back to Home",callback_data="nav:home")])
+    return InlineKeyboardMarkup(buttons)
+
+def mirror_confirm_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([[InlineKeyboardButton("✅ Confirm and Create Channel",callback_data="mirror:confirm")],[InlineKeyboardButton("✖️ Cancel",callback_data="mirror:cancel")]])
 
 def manual_upload_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([

@@ -15,7 +15,8 @@ def build_control_bot(token: str, db, owner_id: int, cfg, runtime, login) -> App
     ]
     for command, callback in commands:
         app.add_handler(CommandHandler(command, own(callback)))
-    app.add_handler(CallbackQueryHandler(own(handlers.callback), pattern=r"^(auth|nav|cfg|job|addmode|type|batchtype|manual|manualtype):"))
+    app.add_handler(CallbackQueryHandler(own(handlers.callback), pattern=r"^(auth|nav|cfg|job|addmode|type|batchtype|manual|manualtype|mirror):"))
+    app.add_handler(MessageHandler(filters.FORWARDED, own(handlers.source_forward)))
     app.add_handler(MessageHandler(filters.Document.ALL | filters.VIDEO, own(handlers.media)))
     app.add_handler(MessageHandler(filters.Sticker.ALL, own(handlers.sticker)))
     app.add_handler(MessageHandler(filters.PHOTO, own(handlers.photo)))

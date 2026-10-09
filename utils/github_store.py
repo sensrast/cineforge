@@ -49,6 +49,10 @@ async def persist_state(db) -> bool:
             if state_row:pipeline.append(dict(state_row))
         manual_sessions=[dict(row) for row in await db.db.fetchall("SELECT * FROM manual_upload_sessions")]
         manual_files=[dict(row) for row in await db.db.fetchall("SELECT * FROM manual_upload_files ORDER BY id")]
+        mirror_sources=[dict(row) for row in await db.db.fetchall("SELECT * FROM mirror_sources ORDER BY id")]
+        mirror_stickers=[dict(row) for row in await db.db.fetchall("SELECT * FROM mirror_season_stickers ORDER BY source_id,season")]
+        mirror_seen=[dict(row) for row in await db.db.fetchall("SELECT * FROM mirror_seen ORDER BY source_id,source_message_id")]
+        mirror_pending=[dict(row) for row in await db.db.fetchall("SELECT * FROM mirror_pending ORDER BY id")]
         async with aiohttp.ClientSession(headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as session:
             for attempt in range(3):
                 sha = None; remote_settings = {}
@@ -65,7 +69,7 @@ async def persist_state(db) -> bool:
                 # Never erase a durable setting merely because a fresh local
                 # SQLite database did not contain that key. Local values win.
                 merged_settings=dict(remote_settings);merged_settings.update(local_settings)
-                state={"version":4,"settings":merged_settings,"channels":local_channels,"queue":active_queue,"pipeline":pipeline,"manual_sessions":manual_sessions,"manual_files":manual_files}
+                state={"version":5,"settings":merged_settings,"channels":local_channels,"queue":active_queue,"pipeline":pipeline,"manual_sessions":manual_sessions,"manual_files":manual_files,"mirror_sources":mirror_sources,"mirror_stickers":mirror_stickers,"mirror_seen":mirror_seen,"mirror_pending":mirror_pending}
                 content=base64.b64encode(json.dumps(state,ensure_ascii=False,separators=(",", ":")).encode()).decode()
                 payload={"message":"Update CineForge runtime state","content":content}
                 if sha:payload["sha"]=sha
