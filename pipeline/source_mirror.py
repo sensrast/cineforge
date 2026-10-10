@@ -148,13 +148,13 @@ async def _create_season_batch(ctx,row,start_id:int,end_id:int)->str:
  return link
 
 def _season_post(title:str,season:int,last_episode:int)->str:
- return (f'✦ {_display_title(title)} ✦\n\n'
-         '╔━━━━━━━━━━━━━━━━━━━━━╗\n\n'
-         f'⌲ 𝗦𝗲𝗮𝘀𝗼𝗻 : {season}\n\n'
-         f'❍ 𝗘𝗽𝗶𝘀𝗼𝗱𝗲: 1-{last_episode}\n\n'
-         '〄 𝗔𝘂𝗱𝗶𝗼: Hindi\n\n'
-         f'◎ 𝗧𝗼𝘁𝗮𝗹 𝗘𝗽𝗶𝘀𝗼𝗱𝗲𝘀: {last_episode}\n\n'
-         '♡ 𝗣𝗼𝘄𝗲𝗿𝗲𝗱 𝗯𝘆: @YCAnime , @India_crunchyroll\n\n'
+ return (f'✦ {_display_title(title)} ✦\n'
+         '╔━━━━━━━━━━━━━━━━━━━━━╗\n'
+         f'⌲ 𝗦𝗲𝗮𝘀𝗼𝗻 : {season}\n'
+         f'❍ 𝗘𝗽𝗶𝘀𝗼𝗱𝗲: 1-{last_episode}\n'
+         '〄 𝗔𝘂𝗱𝗶𝗼: Hindi\n'
+         f'◎ 𝗧𝗼𝘁𝗮𝗹 𝗘𝗽𝗶𝘀𝗼𝗱𝗲𝘀: {last_episode}\n'
+         '♡ 𝗣𝗼𝘄𝗲𝗿𝗲𝗱 𝗯𝘆: @YCAnime , @India_crunchyroll\n'
          '╚━━━━━━━━━━━━━━━━━━━━━╝')
 
 async def _finalize_season(ctx,row,season:int,last_episode:int,start_id:int,end_id:int,batch_link:str)->tuple[int,int,int]:
