@@ -1,6 +1,6 @@
 """Isolated subscriber-channel mirror: historical import plus future media sync."""
 from __future__ import annotations
-import asyncio,logging,re
+import asyncio,logging,os,tempfile
 from pyrogram.handlers import MessageHandler
 from pipeline.context import PipelineContext
 from control.manual_upload import detect_quality,detect_episode,ORDER
@@ -25,6 +25,20 @@ def _file_name(message):
 def _spawn(coro,name):
  task=asyncio.create_task(coro,name=name);_TASKS.add(task);task.add_done_callback(_TASKS.discard);return task
 
+async def _sync_profile_photo(ctx:PipelineContext,source_chat_id:int,destination_chat_id:int):
+ """Copy the small channel avatar; media files are never downloaded."""
+ path=None
+ try:
+  chat=await ctx.client.get_chat(source_chat_id)
+  if not chat.photo:return
+  path=await ctx.client.download_media(chat.photo.big_file_id,file_name=os.path.join(tempfile.gettempdir(),f'mirror-{abs(source_chat_id)}.jpg'))
+  if path:await ctx.client.set_chat_photo(destination_chat_id,photo=path)
+ except Exception:log.warning('Could not copy source channel profile photo',exc_info=True)
+ finally:
+  if path:
+   try:os.remove(path)
+   except OSError:pass
+
 async def create_source(ctx:PipelineContext,source_chat_id:int,source_ref:str,title:str)->tuple[int,list[int],str]:
  existing=await ctx.db.db.fetchone('SELECT * FROM mirror_sources WHERE source_chat_id=?',(source_chat_id,))
  if existing:return int(existing['id']),await missing_seasons(ctx,int(existing['id'])),existing['invite_link'] or ''
@@ -33,6 +47,7 @@ async def create_source(ctx:PipelineContext,source_chat_id:int,source_ref:str,ti
  source_id=await ctx.db.db.execute("INSERT INTO mirror_sources(source_chat_id,source_ref,source_title,destination_chat_id,invite_link,status) VALUES(?,?,?,?,?,'scanning')",(source_chat_id,source_ref,title,channel.id,invite))
  await ctx.db.db.execute("INSERT OR IGNORE INTO created_channels(queue_id,movie_name,content_type,channel_id,invite_link) VALUES(NULL,?,'mirror',?,?)",(title,channel.id,invite))
  await add_control_bot_admin(ctx,None,channel.id);await add_filestore_admin(ctx,None,channel.id)
+ await _sync_profile_photo(ctx,source_chat_id,channel.id)
  await scan_history(ctx,source_id)
  seasons=await missing_seasons(ctx,source_id)
  await ctx.db.db.execute("UPDATE mirror_sources SET status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",('awaiting_stickers' if seasons else 'awaiting_end_sticker',source_id))
@@ -90,52 +105,57 @@ async def _send_season_start(ctx,row,season:int):
  await send_channel_sticker(ctx.cfg.control_token,int(row['destination_chat_id']),sticker['sticker_file_id'])
  await ctx.client.send_message(int(row['destination_chat_id']),f'📺 Season {season}')
 
-async def _send_season_end(ctx,row,season:int):
- sticker=row['end_sticker_file_id']
- if sticker:await send_channel_sticker(ctx.cfg.control_token,int(row['destination_chat_id']),sticker)
- await ctx.client.send_message(int(row['destination_chat_id']),f'✅ End of Season {season}')
+async def _send_season_end(ctx,row,season:int)->tuple[int|None,int]:
+ sticker=row['end_sticker_file_id'];sticker_id=None
+ if sticker:sticker_id=await send_channel_sticker(ctx.cfg.control_token,int(row['destination_chat_id']),sticker)
+ text=await ctx.client.send_message(int(row['destination_chat_id']),f'✅ End of Season {season}')
+ return sticker_id,text.id
 
 async def _publish_episode(ctx,row,season:int,episode:int,items:list[dict]):
- # Preserve the source channel's exact oldest-to-newest message sequence.
- # Duplicate qualities are valid (alternate encodes/parts) and must not abort
- # the mirror. Only files without a label are inferred by relative size.
+ # Build one clean slot per quality. Reposts/alternate duplicates are reduced to
+ # the largest file for that quality; ties keep the earliest source message.
  source_order=sorted(items,key=lambda item:int(item['source_message_id']))
- unknown=sorted([item for item in source_order if not item.get('quality')],key=lambda item:(int(item.get('file_size') or 0),int(item['source_message_id'])))
+ ranked=sorted(source_order,key=lambda item:(int(item.get('file_size') or 0),int(item['source_message_id'])))
  labels=['480p','720p','1080p','2160p']
- for index,item in enumerate(unknown):item['quality']=labels[min(index,len(labels)-1)]
- # Episodes remain oldest-to-newest, but files inside each episode must always
- # be 480p → 720p → 1080p → 2160p. Alternate encodes of the same quality keep
- # their original relative order. Source Mirror intentionally sends no quality stickers.
- ordered=sorted(source_order,key=lambda item:(ORDER.get(item.get('quality'),99),int(item['source_message_id'])))
+ if len(ranked)==1:targets=['480p']
+ elif len(ranked)==2:targets=['480p','720p']
+ elif len(ranked)==3:targets=['480p','720p','1080p']
+ else:targets=[labels[min(round(i*3/max(1,len(ranked)-1)),3)] for i in range(len(ranked))]
+ for index,item in enumerate(ranked):
+  if not item.get('quality'):item['quality']=targets[index]
+ chosen={}
+ for item in source_order:
+  quality=item['quality'];old=chosen.get(quality)
+  if old is None or int(item.get('file_size') or 0)>int(old.get('file_size') or 0):chosen[quality]=item
+ ordered=sorted(chosen.values(),key=lambda item:(ORDER.get(item.get('quality'),99),int(item['source_message_id'])))
  await ctx.client.send_message(int(row['destination_chat_id']),f'📺 Episode {episode:02d}')
  for item in ordered:
-  quality=item['quality']
-  caption=CAPTION.format(title=row['source_title'],season=season,quality=quality,episode=episode)
+  quality=item['quality'];caption=CAPTION.format(title=row['source_title'],season=season,quality=quality,episode=episode)
   try:await ctx.client.copy_message(int(row['destination_chat_id']),int(row['source_chat_id']),int(item['source_message_id']),caption=caption)
   except Exception as exc:
    if 'forwards_restricted' in str(exc).lower() or 'protected' in str(exc).lower():raise RuntimeError('Source channel has protected content; Telegram does not allow copying it') from exc
    raise
+  await ctx.db.db.execute('INSERT OR REPLACE INTO mirror_slots(source_id,season,episode,quality,source_message_id) VALUES(?,?,?,?,?)',(row['id'],season,episode,quality,item['source_message_id']))
+ for item in source_order:
   await ctx.db.db.execute('INSERT OR IGNORE INTO mirror_seen(source_id,source_message_id) VALUES(?,?)',(row['id'],item['source_message_id']))
   await ctx.db.db.execute('DELETE FROM mirror_pending WHERE source_id=? AND source_message_id=?',(row['id'],item['source_message_id']))
 
 async def sync_history(ctx:PipelineContext,source_id:int):
  try:
   row=await ctx.db.db.fetchone('SELECT * FROM mirror_sources WHERE id=?',(source_id,))
-  pending=[dict(x) for x in await ctx.db.db.fetchall('SELECT * FROM mirror_pending WHERE source_id=? ORDER BY source_message_id',(source_id,))]
-  current_season=0;current_episode=0;buffer=[]
-  for item in pending:
-   season=int(item['season']);episode=int(item['episode'])
-   if current_season==0:
-    current_season=season;current_episode=episode;await _send_season_start(ctx,row,season)
-   if (season,episode)!=(current_season,current_episode):
-    if buffer:await _publish_episode(ctx,row,current_season,current_episode,buffer);buffer=[]
-    if season!=current_season:
-     await _send_season_end(ctx,row,current_season);await _send_season_start(ctx,row,season)
-    current_season=season;current_episode=episode
-   buffer.append(item)
-  if buffer:await _publish_episode(ctx,row,current_season,current_episode,buffer)
-  await ctx.db.db.execute("UPDATE mirror_sources SET status='live',current_season=?,current_episode=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",(current_season,current_episode,source_id));await persist_state(ctx.db)
-  await notify_control_bot(ctx.cfg.control_token,ctx.cfg.owner_id,f"✅ Historical mirror complete: {row['source_title']}\nFuture media will sync automatically.")
+  groups=await ctx.db.db.fetchall('SELECT DISTINCT season,episode FROM mirror_pending WHERE source_id=? ORDER BY season,episode',(source_id,))
+  seasons=sorted({int(group['season']) for group in groups});final_sticker=None;final_text=None;last_episode=0
+  for season in seasons:
+   await _send_season_start(ctx,row,season)
+   season_groups=[group for group in groups if int(group['season'])==season]
+   for group in season_groups:
+    episode=int(group['episode']);items=[dict(x) for x in await ctx.db.db.fetchall('SELECT * FROM mirror_pending WHERE source_id=? AND season=? AND episode=? ORDER BY source_message_id',(source_id,season,episode))]
+    await _publish_episode(ctx,row,season,episode,items);last_episode=episode
+    await persist_state(ctx.db)
+   final_sticker,final_text=await _send_season_end(ctx,row,season)
+  latest=seasons[-1] if seasons else 0
+  await ctx.db.db.execute("UPDATE mirror_sources SET status='live',current_season=?,current_episode=?,current_end_sticker_message_id=?,current_end_text_message_id=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",(latest,last_episode,final_sticker,final_text,source_id));await persist_state(ctx.db)
+
  except Exception as exc:
   log.exception('Historical source mirror failed');await ctx.db.db.execute("UPDATE mirror_sources SET status='failed',updated_at=CURRENT_TIMESTAMP WHERE id=?",(source_id,));await persist_state(ctx.db);await notify_control_bot(ctx.cfg.control_token,ctx.cfg.owner_id,f'❌ Mirror failed: {exc}')
 
@@ -150,26 +170,36 @@ async def restart_mirror(ctx:PipelineContext,source_id:int):
   async for message in ctx.client.get_chat_history(int(row['destination_chat_id'])):ids.append(message.id)
   for index in range(0,len(ids),100):
    if ids[index:index+100]:await ctx.client.delete_messages(int(row['destination_chat_id']),ids[index:index+100])
-  await ctx.db.db.execute('DELETE FROM mirror_seen WHERE source_id=?',(source_id,));await ctx.db.db.execute('DELETE FROM mirror_pending WHERE source_id=?',(source_id,))
+  await ctx.db.db.execute('DELETE FROM mirror_seen WHERE source_id=?',(source_id,));await ctx.db.db.execute('DELETE FROM mirror_pending WHERE source_id=?',(source_id,));await ctx.db.db.execute('DELETE FROM mirror_slots WHERE source_id=?',(source_id,))
+  await _sync_profile_photo(ctx,int(row['source_chat_id']),int(row['destination_chat_id']))
   await scan_history(ctx,source_id)
-  await ctx.db.db.execute("UPDATE mirror_sources SET status='syncing',current_season=0,current_episode=0,last_source_message_id=0,updated_at=CURRENT_TIMESTAMP WHERE id=?",(source_id,))
+  await ctx.db.db.execute("UPDATE mirror_sources SET status='syncing',current_season=0,current_episode=0,last_source_message_id=0,current_end_sticker_message_id=NULL,current_end_text_message_id=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?",(source_id,))
   await persist_state(ctx.db);start_history(ctx,source_id)
  except Exception as exc:
   log.exception('Source mirror restart failed');await ctx.db.db.execute("UPDATE mirror_sources SET status='failed' WHERE id=?",(source_id,));await persist_state(ctx.db);await notify_control_bot(ctx.cfg.control_token,ctx.cfg.owner_id,f'❌ Mirror restart failed: {exc}')
 
 async def _flush_future(ctx,source_id,season,episode):
  await asyncio.sleep(300)
- row=await ctx.db.db.fetchone('SELECT * FROM mirror_sources WHERE id=?',(source_id,));items=[dict(x) for x in await ctx.db.db.fetchall('SELECT * FROM mirror_pending WHERE source_id=? AND season=? AND episode=? ORDER BY file_size,id',(source_id,season,episode))]
+ row=await ctx.db.db.fetchone('SELECT * FROM mirror_sources WHERE id=?',(source_id,));items=[dict(x) for x in await ctx.db.db.fetchall('SELECT * FROM mirror_pending WHERE source_id=? AND season=? AND episode=? ORDER BY source_message_id',(source_id,season,episode))]
  if not items:return
  sticker=await ctx.db.db.fetchone('SELECT 1 FROM mirror_season_stickers WHERE source_id=? AND season=?',(source_id,season))
  if not sticker:
   await ctx.db.db.execute("UPDATE mirror_sources SET status='awaiting_stickers' WHERE id=?",(source_id,));await persist_state(ctx.db);await notify_control_bot(ctx.cfg.control_token,ctx.cfg.owner_id,f'📤 Upload the Season {season} sticker from Source Mirror panel; files are safely pending.');return
- current=int(row['current_season'] or 0)
- if season!=current:
-  if current:await _send_season_end(ctx,row,current)
+ current=int(row['current_season'] or 0);current_episode=int(row['current_episode'] or 0)
+ # Never inject reposts from an older/already-closed season into the middle of
+ # the clean destination. Mark them handled without publishing.
+ if season<current or (season==current and episode<=current_episode):
+  for item in items:
+   await ctx.db.db.execute('INSERT OR IGNORE INTO mirror_seen(source_id,source_message_id) VALUES(?,?)',(source_id,item['source_message_id']));await ctx.db.db.execute('DELETE FROM mirror_pending WHERE id=?',(item['id'],))
+  await persist_state(ctx.db);return
+ if season==current:
+  ids=[value for value in (row['current_end_sticker_message_id'],row['current_end_text_message_id']) if value]
+  if ids:await ctx.client.delete_messages(int(row['destination_chat_id']),ids)
+ else:
   await _send_season_start(ctx,row,season)
  await _publish_episode(ctx,row,season,episode,items)
- await ctx.db.db.execute("UPDATE mirror_sources SET status='live',current_season=?,current_episode=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",(season,episode,source_id));await persist_state(ctx.db)
+ end_sticker,end_text=await _send_season_end(ctx,row,season)
+ await ctx.db.db.execute("UPDATE mirror_sources SET status='live',current_season=?,current_episode=?,current_end_sticker_message_id=?,current_end_text_message_id=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",(season,episode,end_sticker,end_text,source_id));await persist_state(ctx.db)
 
 async def _future_handler(ctx,client,message):
  media=_media(message)
