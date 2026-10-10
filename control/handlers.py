@@ -35,7 +35,11 @@ class ControlHandlers:
         @wraps(fn)
         async def wrapped(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if not update.effective_user or update.effective_user.id != self.owner_id:
-                if update.effective_message:
+                # Channel posts have no effective_user. The control bot is an
+                # administrator in generated channels and receives those posts;
+                # never answer them with private-bot warnings inside the channel.
+                chat=update.effective_chat
+                if update.effective_user and chat and str(chat.type).lower()=='private' and update.effective_message:
                     await update.effective_message.reply_text("🚫 Unauthorized. This bot is private.")
                 return
             return await fn(update, context)

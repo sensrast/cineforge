@@ -99,15 +99,17 @@ async def _publish_episode(ctx,row,season:int,episode:int,items:list[dict]):
  # Preserve the source channel's exact oldest-to-newest message sequence.
  # Duplicate qualities are valid (alternate encodes/parts) and must not abort
  # the mirror. Only files without a label are inferred by relative size.
- ordered=sorted(items,key=lambda item:int(item['source_message_id']))
- unknown=sorted([item for item in ordered if not item.get('quality')],key=lambda item:(int(item.get('file_size') or 0),int(item['source_message_id'])))
+ source_order=sorted(items,key=lambda item:int(item['source_message_id']))
+ unknown=sorted([item for item in source_order if not item.get('quality')],key=lambda item:(int(item.get('file_size') or 0),int(item['source_message_id'])))
  labels=['480p','720p','1080p','2160p']
  for index,item in enumerate(unknown):item['quality']=labels[min(index,len(labels)-1)]
+ # Episodes remain oldest-to-newest, but files inside each episode must always
+ # be 480p → 720p → 1080p → 2160p. Alternate encodes of the same quality keep
+ # their original relative order. Source Mirror intentionally sends no quality stickers.
+ ordered=sorted(source_order,key=lambda item:(ORDER.get(item.get('quality'),99),int(item['source_message_id'])))
  await ctx.client.send_message(int(row['destination_chat_id']),f'📺 Episode {episode:02d}')
- quality_stickers={q:await ctx.db.setting(f'sticker_{q}','') for q in ('480p','720p','1080p','2160p')}
  for item in ordered:
-  quality=item['quality'];sticker=quality_stickers.get(quality)
-  if sticker:await send_channel_sticker(ctx.cfg.control_token,int(row['destination_chat_id']),sticker)
+  quality=item['quality']
   caption=CAPTION.format(title=row['source_title'],season=season,quality=quality,episode=episode)
   try:await ctx.client.copy_message(int(row['destination_chat_id']),int(row['source_chat_id']),int(item['source_message_id']),caption=caption)
   except Exception as exc:
@@ -139,6 +141,21 @@ async def sync_history(ctx:PipelineContext,source_id:int):
 
 def start_history(ctx,source_id):
  if not any(t.get_name()==f'mirror-history-{source_id}' for t in _TASKS):_spawn(sync_history(ctx,source_id),f'mirror-history-{source_id}')
+
+async def restart_mirror(ctx:PipelineContext,source_id:int):
+ """Clean a partial destination and rebuild it deterministically from message one."""
+ try:
+  row=await ctx.db.db.fetchone('SELECT * FROM mirror_sources WHERE id=?',(source_id,))
+  ids=[]
+  async for message in ctx.client.get_chat_history(int(row['destination_chat_id'])):ids.append(message.id)
+  for index in range(0,len(ids),100):
+   if ids[index:index+100]:await ctx.client.delete_messages(int(row['destination_chat_id']),ids[index:index+100])
+  await ctx.db.db.execute('DELETE FROM mirror_seen WHERE source_id=?',(source_id,));await ctx.db.db.execute('DELETE FROM mirror_pending WHERE source_id=?',(source_id,))
+  await scan_history(ctx,source_id)
+  await ctx.db.db.execute("UPDATE mirror_sources SET status='syncing',current_season=0,current_episode=0,last_source_message_id=0,updated_at=CURRENT_TIMESTAMP WHERE id=?",(source_id,))
+  await persist_state(ctx.db);start_history(ctx,source_id)
+ except Exception as exc:
+  log.exception('Source mirror restart failed');await ctx.db.db.execute("UPDATE mirror_sources SET status='failed' WHERE id=?",(source_id,));await persist_state(ctx.db);await notify_control_bot(ctx.cfg.control_token,ctx.cfg.owner_id,f'❌ Mirror restart failed: {exc}')
 
 async def _flush_future(ctx,source_id,season,episode):
  await asyncio.sleep(300)
@@ -177,9 +194,10 @@ async def register(ctx:PipelineContext):
  if not _REGISTERED:
   async def handler(client,message):await _future_handler(ctx,client,message)
   ctx.client.add_handler(MessageHandler(handler),group=-90);_REGISTERED=True
- rows=await ctx.db.db.fetchall("SELECT id,status FROM mirror_sources WHERE status IN ('syncing','live','awaiting_stickers')")
+ rows=await ctx.db.db.fetchall("SELECT id,status FROM mirror_sources WHERE status IN ('restart','syncing','live','awaiting_stickers','awaiting_end_sticker')")
  for row in rows:
-  if row['status']=='syncing':start_history(ctx,int(row['id']))
+  if row['status']=='restart':_spawn(restart_mirror(ctx,int(row['id'])),f"mirror-restart-{row['id']}")
+  elif row['status']=='syncing':start_history(ctx,int(row['id']))
   pending=await ctx.db.db.fetchall('SELECT DISTINCT season,episode FROM mirror_pending WHERE source_id=?',(row['id'],))
   if row['status']=='live':
    for item in pending:_spawn(_flush_future(ctx,int(row['id']),int(item['season']),int(item['episode'])),f"mirror-flush-{row['id']}-{item['season']}-{item['episode']}")
