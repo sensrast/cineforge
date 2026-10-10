@@ -1,6 +1,6 @@
 """Isolated subscriber-channel mirror: historical import plus future media sync."""
 from __future__ import annotations
-import asyncio,logging,os,tempfile
+import asyncio,logging,os,re,tempfile
 from pyrogram.handlers import MessageHandler
 from pipeline.context import PipelineContext
 from control.manual_upload import detect_quality,detect_episode,ORDER
@@ -43,10 +43,18 @@ async def _sync_profile_photo(ctx:PipelineContext,source_chat_id:int,destination
    try:os.remove(path)
    except OSError:pass
 
+def _display_title(title:str)->str:
+ return re.sub(r'\s*\(?\s*hindi\s+dubbed\s*\)?\s*$','',title or '',flags=re.I).strip()
+
+def _channel_title(title:str)->str:
+ if re.search(r'\bhindi\s+dubbed\b',title or '',re.I):return f'{_display_title(title)} (In Hindi)'
+ return title.strip()
+
 async def create_source(ctx:PipelineContext,source_chat_id:int,source_ref:str,title:str)->tuple[int,list[int],str]:
  existing=await ctx.db.db.fetchone('SELECT * FROM mirror_sources WHERE source_chat_id=?',(source_chat_id,))
  if existing:return int(existing['id']),await missing_seasons(ctx,int(existing['id'])),existing['invite_link'] or ''
- channel=await ctx.speed.call(lambda:ctx.client.create_channel(title,f'Mirrored media from {title}'),None)
+ channel_title=_channel_title(title)
+ channel=await ctx.speed.call(lambda:ctx.client.create_channel(channel_title,f'Mirrored media from {title}'),None)
  invite=await ctx.speed.call(lambda:ctx.client.export_chat_invite_link(channel.id),None)
  source_id=await ctx.db.db.execute("INSERT INTO mirror_sources(source_chat_id,source_ref,source_title,destination_chat_id,invite_link,status) VALUES(?,?,?,?,?,'scanning')",(source_chat_id,source_ref,title,channel.id,invite))
  await ctx.db.db.execute("INSERT OR IGNORE INTO created_channels(queue_id,movie_name,content_type,channel_id,invite_link) VALUES(NULL,?,'mirror',?,?)",(title,channel.id,invite))
@@ -140,15 +148,14 @@ async def _create_season_batch(ctx,row,start_id:int,end_id:int)->str:
  return link
 
 def _season_post(title:str,season:int,last_episode:int)->str:
- return (f'✦ {title} ✦\n'
-         '╭────────────────────\n'
-         f'▷ Season : {season}\n'
-         f'▷ Episode : 1-{last_episode}\n'
-         '♬ Audio: Hindi\n'
-         f'◉ Total Episodes: {last_episode}\n'
-         '♡ Powered by: @YOAnime ,\n'
-         '@India_crunchyroll\n'
-         '╰────────────────────')
+ return (f'✦ {_display_title(title)} ✦\n\n'
+         '╔━━━━━━━━━━━━━━━━━━━━━╗\n\n'
+         f'⌲ 𝗦𝗲𝗮𝘀𝗼𝗻 : {season}\n\n'
+         f'❍ 𝗘𝗽𝗶𝘀𝗼𝗱𝗲: 1-{last_episode}\n\n'
+         '〄 𝗔𝘂𝗱𝗶𝗼: Hindi\n\n'
+         f'◎ 𝗧𝗼𝘁𝗮𝗹 𝗘𝗽𝗶𝘀𝗼𝗱𝗲𝘀: {last_episode}\n\n'
+         '♡ 𝗣𝗼𝘄𝗲𝗿𝗲𝗱 𝗯𝘆: @YCAnime , @India_crunchyroll\n\n'
+         '╚━━━━━━━━━━━━━━━━━━━━━╝')
 
 async def _finalize_season(ctx,row,season:int,last_episode:int,start_id:int,end_id:int,batch_link:str)->tuple[int,int,int]:
  channel=int(row['destination_chat_id'])
@@ -242,6 +249,7 @@ async def restart_mirror(ctx:PipelineContext,source_id:int):
  """Clean a partial destination and rebuild it deterministically from message one."""
  try:
   row=await ctx.db.db.fetchone('SELECT * FROM mirror_sources WHERE id=?',(source_id,))
+  await ctx.client.set_chat_title(int(row['destination_chat_id']),_channel_title(row['source_title']))
   ids=[]
   async for message in ctx.client.get_chat_history(int(row['destination_chat_id'])):ids.append(message.id)
   for index in range(0,len(ids),100):
