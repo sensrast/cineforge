@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS mirror_sources (
  id INTEGER PRIMARY KEY AUTOINCREMENT, source_chat_id INTEGER UNIQUE NOT NULL, source_ref TEXT,
  source_title TEXT NOT NULL, destination_chat_id INTEGER, invite_link TEXT,
  status TEXT NOT NULL DEFAULT 'awaiting_confirmation', current_season INTEGER DEFAULT 0,
- current_episode INTEGER DEFAULT 0, last_source_message_id INTEGER DEFAULT 0,
+ current_episode INTEGER DEFAULT 0, last_source_message_id INTEGER DEFAULT 0, end_sticker_file_id TEXT,
  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS mirror_season_stickers (

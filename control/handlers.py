@@ -10,7 +10,7 @@ from control.keyboards import (
     back_home_keyboard, status_keyboard, content_type_keyboard,manual_upload_keyboard,
     mirror_panel_keyboard,mirror_confirm_keyboard,
 )
-from pipeline.source_mirror import create_source,save_season_sticker,missing_seasons
+from pipeline.source_mirror import create_source,save_season_sticker,save_end_sticker,missing_seasons
 from control.manual_upload import detect_quality,detect_episode,assign_qualities,summary
 
 CFG_ATTRS = {
@@ -352,12 +352,15 @@ class ControlHandlers:
                 context.user_data.clear()
                 if seasons:
                     context.user_data.update(input_mode='mirror_sticker',mirror_source_id=source_id,mirror_seasons=seasons)
-                    return await self._edit(query,f"✅ Destination created:\n{invite}\n\nNow send the custom sticker for Season {seasons[0]}. The existing End sticker will be used at season boundaries.",back_home_keyboard())
-                return await self._edit(query,f'✅ Mirror connected and historical sync started.\n{invite}',home_keyboard(self.runtime.running))
+                    return await self._edit(query,f"✅ Destination created:\n{invite}\n\nNow send the custom sticker for Season {seasons[0]}. After all season stickers, I will ask for your End-of-Season sticker.",back_home_keyboard())
+                context.user_data.update(input_mode='mirror_end_sticker',mirror_source_id=source_id)
+                return await self._edit(query,f'✅ Destination created:\n{invite}\n\nNow send the End-of-Season sticker.',back_home_keyboard())
             if action=='view':
                 source_id=int(parts[2]);row=await self.db.db.fetchone('SELECT * FROM mirror_sources WHERE id=?',(source_id,));missing=await missing_seasons(self.runtime.worker.ctx,source_id) if row and self.runtime.running else []
                 if missing:context.user_data.update(input_mode='mirror_sticker',mirror_source_id=source_id,mirror_seasons=missing)
-                return await self._edit(query,(f"🔄 {row['source_title']}\nStatus: {row['status']}\nDestination: {row['invite_link']}"+(f"\n\nSend Season {missing[0]} sticker now." if missing else '')) if row else 'Mirror not found.',mirror_panel_keyboard())
+                elif row and not row['end_sticker_file_id']:context.user_data.update(input_mode='mirror_end_sticker',mirror_source_id=source_id)
+                prompt=(f"\n\nSend Season {missing[0]} sticker now." if missing else "\n\nSend the End-of-Season sticker now." if row and not row['end_sticker_file_id'] else '')
+                return await self._edit(query,(f"🔄 {row['source_title']}\nStatus: {row['status']}\nDestination: {row['invite_link']}"+prompt) if row else 'Mirror not found.',mirror_panel_keyboard())
         if data.startswith("addmode:"):
             kind=data.split(":",1)[1];context.user_data.clear();context.user_data.update(input_mode="single_typed",content_type=kind)
             return await self._edit(query,f"Send the {kind} title.",back_home_keyboard())
@@ -474,7 +477,11 @@ class ControlHandlers:
             if missing:
                 context.user_data['mirror_seasons']=missing
                 return await update.message.reply_text(f'✅ Season {season} sticker saved. Now send the sticker for Season {missing[0]}.',reply_markup=back_home_keyboard())
-            context.user_data.clear();return await update.message.reply_text(f'✅ Season {season} sticker saved. Historical sync started.',reply_markup=home_keyboard(self.runtime.running))
+            context.user_data.clear();context.user_data.update(input_mode='mirror_end_sticker',mirror_source_id=source_id)
+            return await update.message.reply_text(f'✅ Season {season} sticker saved. Now send your End-of-Season sticker.',reply_markup=back_home_keyboard())
+        if context.user_data.get('input_mode')=='mirror_end_sticker':
+            source_id=int(context.user_data['mirror_source_id']);await save_end_sticker(self.runtime.worker.ctx,source_id,update.message.sticker.file_id);context.user_data.clear()
+            return await update.message.reply_text('✅ End-of-Season sticker saved. Historical sync restarted from the very first source media message in exact source sequence.',reply_markup=home_keyboard(self.runtime.running))
         key = context.user_data.get("setting_key")
         if context.user_data.get("input_mode") != "setting" or not key or SETTING_DEFS.get(key, {}).get("kind") != "sticker":
             return await update.message.reply_text("Open Settings → Channel & Captions and choose a sticker slot first.", reply_markup=back_home_keyboard())

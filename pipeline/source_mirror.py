@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio,logging,re
 from pyrogram.handlers import MessageHandler
 from pipeline.context import PipelineContext
-from control.manual_upload import detect_quality,detect_episode,assign_qualities,ORDER
+from control.manual_upload import detect_quality,detect_episode,ORDER
 from pipeline.stages.stage_5_promote import add_control_bot_admin,add_filestore_admin
 from utils.notifications import send_channel_sticker,notify_control_bot
 from utils.github_store import persist_state
@@ -35,10 +35,9 @@ async def create_source(ctx:PipelineContext,source_chat_id:int,source_ref:str,ti
  await add_control_bot_admin(ctx,None,channel.id);await add_filestore_admin(ctx,None,channel.id)
  await scan_history(ctx,source_id)
  seasons=await missing_seasons(ctx,source_id)
- await ctx.db.db.execute("UPDATE mirror_sources SET status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",('awaiting_stickers' if seasons else 'syncing',source_id))
+ await ctx.db.db.execute("UPDATE mirror_sources SET status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",('awaiting_stickers' if seasons else 'awaiting_end_sticker',source_id))
  await persist_state(ctx.db)
  await notify_control_bot(ctx.cfg.control_token,ctx.cfg.owner_id,f'✅ Mirror destination created for {title}:\n{invite}')
- if not seasons:start_history(ctx,source_id)
  return source_id,seasons,invite
 
 async def scan_history(ctx:PipelineContext,source_id:int)->None:
@@ -68,8 +67,22 @@ async def save_season_sticker(ctx:PipelineContext,source_id:int,season:int,file_
  await ctx.db.db.execute('INSERT INTO mirror_season_stickers(source_id,season,sticker_file_id) VALUES(?,?,?) ON CONFLICT(source_id,season) DO UPDATE SET sticker_file_id=excluded.sticker_file_id',(source_id,season,file_id))
  missing=await missing_seasons(ctx,source_id)
  if not missing:
-  await ctx.db.db.execute("UPDATE mirror_sources SET status='syncing',updated_at=CURRENT_TIMESTAMP WHERE id=?",(source_id,));start_history(ctx,source_id)
+  await ctx.db.db.execute("UPDATE mirror_sources SET status=CASE WHEN end_sticker_file_id IS NULL THEN 'awaiting_end_sticker' ELSE 'syncing' END,updated_at=CURRENT_TIMESTAMP WHERE id=?",(source_id,))
+  row=await ctx.db.db.fetchone('SELECT end_sticker_file_id FROM mirror_sources WHERE id=?',(source_id,))
+  if row and row['end_sticker_file_id']:start_history(ctx,source_id)
  await persist_state(ctx.db);return missing
+
+async def save_end_sticker(ctx:PipelineContext,source_id:int,file_id:str)->None:
+ row=await ctx.db.db.fetchone('SELECT status,destination_chat_id FROM mirror_sources WHERE id=?',(source_id,))
+ # A failed first pass may have left only season/header messages. Clear that
+ # isolated destination so the retry truly starts at the first source media.
+ if row and row['status']=='failed' and row['destination_chat_id']:
+  ids=[]
+  async for message in ctx.client.get_chat_history(int(row['destination_chat_id'])):ids.append(message.id)
+  for index in range(0,len(ids),100):
+   if ids[index:index+100]:await ctx.client.delete_messages(int(row['destination_chat_id']),ids[index:index+100])
+ await ctx.db.db.execute("UPDATE mirror_sources SET end_sticker_file_id=?,status='syncing',current_season=0,current_episode=0,updated_at=CURRENT_TIMESTAMP WHERE id=?",(file_id,source_id))
+ await persist_state(ctx.db);start_history(ctx,source_id)
 
 async def _send_season_start(ctx,row,season:int):
  sticker=await ctx.db.db.fetchone('SELECT sticker_file_id FROM mirror_season_stickers WHERE source_id=? AND season=?',(row['id'],season))
@@ -78,17 +91,21 @@ async def _send_season_start(ctx,row,season:int):
  await ctx.client.send_message(int(row['destination_chat_id']),f'📺 Season {season}')
 
 async def _send_season_end(ctx,row,season:int):
- sticker=await ctx.db.setting('sticker_end','')
+ sticker=row['end_sticker_file_id']
  if sticker:await send_channel_sticker(ctx.cfg.control_token,int(row['destination_chat_id']),sticker)
  await ctx.client.send_message(int(row['destination_chat_id']),f'✅ End of Season {season}')
 
 async def _publish_episode(ctx,row,season:int,episode:int,items:list[dict]):
- converted=[]
- for item in items:converted.append({**item,'id':item['id'],'explicit_quality':item.get('quality')})
- assigned=assign_qualities(converted,'series')
+ # Preserve the source channel's exact oldest-to-newest message sequence.
+ # Duplicate qualities are valid (alternate encodes/parts) and must not abort
+ # the mirror. Only files without a label are inferred by relative size.
+ ordered=sorted(items,key=lambda item:int(item['source_message_id']))
+ unknown=sorted([item for item in ordered if not item.get('quality')],key=lambda item:(int(item.get('file_size') or 0),int(item['source_message_id'])))
+ labels=['480p','720p','1080p','2160p']
+ for index,item in enumerate(unknown):item['quality']=labels[min(index,len(labels)-1)]
  await ctx.client.send_message(int(row['destination_chat_id']),f'📺 Episode {episode:02d}')
  quality_stickers={q:await ctx.db.setting(f'sticker_{q}','') for q in ('480p','720p','1080p','2160p')}
- for item in assigned:
+ for item in ordered:
   quality=item['quality'];sticker=quality_stickers.get(quality)
   if sticker:await send_channel_sticker(ctx.cfg.control_token,int(row['destination_chat_id']),sticker)
   caption=CAPTION.format(title=row['source_title'],season=season,quality=quality,episode=episode)
@@ -101,16 +118,21 @@ async def _publish_episode(ctx,row,season:int,episode:int,items:list[dict]):
 
 async def sync_history(ctx:PipelineContext,source_id:int):
  try:
-  row=await ctx.db.db.fetchone('SELECT * FROM mirror_sources WHERE id=?',(source_id,));groups=await ctx.db.db.fetchall('SELECT DISTINCT season,episode FROM mirror_pending WHERE source_id=? ORDER BY season,episode',(source_id,))
-  seasons=sorted({int(g['season']) for g in groups})
-  for season in seasons:
-   await _send_season_start(ctx,row,season)
-   for group in [g for g in groups if int(g['season'])==season]:
-    items=[dict(x) for x in await ctx.db.db.fetchall('SELECT * FROM mirror_pending WHERE source_id=? AND season=? AND episode=? ORDER BY file_size,id',(source_id,season,int(group['episode'])))]
-    await _publish_episode(ctx,row,season,int(group['episode']),items)
-   if season!=seasons[-1]:await _send_season_end(ctx,row,season)
-  latest=seasons[-1] if seasons else 0;last_episode=max((int(g['episode']) for g in groups if int(g['season'])==latest),default=0)
-  await ctx.db.db.execute("UPDATE mirror_sources SET status='live',current_season=?,current_episode=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",(latest,last_episode,source_id));await persist_state(ctx.db)
+  row=await ctx.db.db.fetchone('SELECT * FROM mirror_sources WHERE id=?',(source_id,))
+  pending=[dict(x) for x in await ctx.db.db.fetchall('SELECT * FROM mirror_pending WHERE source_id=? ORDER BY source_message_id',(source_id,))]
+  current_season=0;current_episode=0;buffer=[]
+  for item in pending:
+   season=int(item['season']);episode=int(item['episode'])
+   if current_season==0:
+    current_season=season;current_episode=episode;await _send_season_start(ctx,row,season)
+   if (season,episode)!=(current_season,current_episode):
+    if buffer:await _publish_episode(ctx,row,current_season,current_episode,buffer);buffer=[]
+    if season!=current_season:
+     await _send_season_end(ctx,row,current_season);await _send_season_start(ctx,row,season)
+    current_season=season;current_episode=episode
+   buffer.append(item)
+  if buffer:await _publish_episode(ctx,row,current_season,current_episode,buffer)
+  await ctx.db.db.execute("UPDATE mirror_sources SET status='live',current_season=?,current_episode=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",(current_season,current_episode,source_id));await persist_state(ctx.db)
   await notify_control_bot(ctx.cfg.control_token,ctx.cfg.owner_id,f"✅ Historical mirror complete: {row['source_title']}\nFuture media will sync automatically.")
  except Exception as exc:
   log.exception('Historical source mirror failed');await ctx.db.db.execute("UPDATE mirror_sources SET status='failed',updated_at=CURRENT_TIMESTAMP WHERE id=?",(source_id,));await persist_state(ctx.db);await notify_control_bot(ctx.cfg.control_token,ctx.cfg.owner_id,f'❌ Mirror failed: {exc}')
