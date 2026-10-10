@@ -2,9 +2,11 @@
 from __future__ import annotations
 import re
 
-QUALITY_RE=re.compile(r'(?<!\d)(2160p?|1080p?|720p?|480p?)(?!\d)|\b(?:4k|uhd)\b',re.I)
+QUALITY_RE=re.compile(r'(?<!\d)(2160p?|1080p?|720p?|480p?|360p?)(?!\d)|\b(?:4k|uhd)\b',re.I)
 EPISODE_PATTERNS=(
  re.compile(r'\bS(?:eason)?[ ._-]?(\d{1,2})[ ._-]*E(?:p(?:isode)?)?[ ._-]?(\d{1,3})\b',re.I),
+ # Source captions may put episode first: "Episode - E12 ( S03 )".
+ re.compile(r'(?:\bEpisode\s*[-: ]*E?|\bE(?:p(?:isode)?)?[ ._-]?)(\d{1,3}).{0,24}?\(\s*S(?:eason)?[ ._-]?(\d{1,2})\s*\)',re.I),
  re.compile(r'\bE(?:p(?:isode)?)?[ ._-]?(\d{1,3})\b',re.I),
 )
 ORDER={'480p':0,'720p':1,'1080p':2,'2160p':3}
@@ -14,6 +16,7 @@ def detect_quality(text:str)->str|None:
  if not match:return None
  value=(match.group(0) or '').lower()
  if value in {'4k','uhd'} or value.startswith('2160'):return '2160p'
+ if value.startswith('360'):return '480p'
  for quality in ('1080p','720p','480p'):
   if value.startswith(quality[:-1]):return quality
  return None
@@ -23,6 +26,8 @@ def detect_episode(text:str)->tuple[int|None,int|None]:
  match=EPISODE_PATTERNS[0].search(text)
  if match:return int(match.group(1)),int(match.group(2))
  match=EPISODE_PATTERNS[1].search(text)
+ if match:return int(match.group(2)),int(match.group(1))
+ match=EPISODE_PATTERNS[2].search(text)
  if match:return 1,int(match.group(1))
  return None,None
 

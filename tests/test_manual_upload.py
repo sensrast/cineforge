@@ -29,3 +29,6 @@ def test_series_infers_each_episode_separately():
 def test_episode_detection():
  assert detect_episode('Show.S02E07.1080p.mkv')==(2,7)
  assert detect_episode('Episode 12 720p.mkv')==(1,12)
+ assert detect_episode('Episode - E12 ( S03 )')==(3,12)
+ assert detect_episode('Episode - 09 ( S03 )')==(3,9)
+ assert detect_quality('Quality: 360p')=='480p'

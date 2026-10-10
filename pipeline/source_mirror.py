@@ -60,8 +60,12 @@ async def scan_history(ctx:PipelineContext,source_id:int)->None:
  async for message in ctx.client.get_chat_history(int(row['source_chat_id'])):
   media=_media(message)
   if not media:continue
-  text=_file_name(message)+' '+(message.caption or '')
-  season,episode=detect_episode(text);quality=detect_quality(text)
+  # Caption metadata wins over filenames: source filenames are sometimes stale
+  # (for example "season 04" while the caption correctly says "S03").
+  caption=message.caption or '';name=_file_name(message)
+  season,episode=detect_episode(caption)
+  if episode is None:season,episode=detect_episode(name)
+  quality=detect_quality(caption) or detect_quality(name)
   items.append({'message_id':message.id,'season':season,'episode':episode,'quality':quality,'file_size':int(getattr(media,'file_size',0) or 0),'file_name':_file_name(message)})
  items.reverse();current_season=1;current_episode=0;last_rank=-1
  for item in items:
@@ -208,7 +212,9 @@ async def _future_handler(ctx,client,message):
  if not row:return
  seen=await ctx.db.db.fetchone('SELECT 1 FROM mirror_seen WHERE source_id=? AND source_message_id=?',(row['id'],message.id))
  if seen:return
- text=_file_name(message)+' '+(message.caption or '');season,episode=detect_episode(text);quality=detect_quality(text);season=season or int(row['current_season'] or 1)
+ caption=message.caption or '';name=_file_name(message);season,episode=detect_episode(caption)
+ if episode is None:season,episode=detect_episode(name)
+ quality=detect_quality(caption) or detect_quality(name);season=season or int(row['current_season'] or 1)
  if episode is None:
   pending=await ctx.db.db.fetchall('SELECT quality,episode FROM mirror_pending WHERE source_id=? AND season=? ORDER BY id',(row['id'],season));episode=int(row['current_episode'] or 0) or 1
   ranks=[ORDER.get(x['quality'],-1) for x in pending if int(x['episode'])==episode]
