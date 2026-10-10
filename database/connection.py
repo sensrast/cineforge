@@ -35,6 +35,8 @@ class Database:
             await self.conn.execute("ALTER TABLE mirror_sources ADD COLUMN current_end_sticker_message_id INTEGER")
         if "current_end_text_message_id" not in mirror_columns:
             await self.conn.execute("ALTER TABLE mirror_sources ADD COLUMN current_end_text_message_id INTEGER")
+        if "catalog_added" not in mirror_columns:
+            await self.conn.execute("ALTER TABLE mirror_sources ADD COLUMN catalog_added INTEGER DEFAULT 0")
         state_columns={row[1] for row in await (await self.conn.execute("PRAGMA table_info(pipeline_state)")).fetchall()}
         if "backup_done" not in state_columns:
             await self.conn.execute("ALTER TABLE pipeline_state ADD COLUMN backup_done INTEGER DEFAULT 0")

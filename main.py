@@ -125,6 +125,7 @@ async def restore_render_state(queries: Queries) -> bool:
         await restore_rows("mirror_seen",state.get("mirror_seen",[]))
         await restore_rows("mirror_pending",state.get("mirror_pending",[]))
         await restore_rows("mirror_slots",state.get("mirror_slots",[]))
+        await restore_rows("mirror_season_outputs",state.get("mirror_outputs",[]))
         for item in state.get("channels", []):
             await queries.db.execute(
                 "INSERT OR IGNORE INTO created_channels(movie_name,content_type,channel_id,invite_link,batch_link,shortened_link,owner_admin_confirmed) VALUES(?,?,?,?,?,?,?)",

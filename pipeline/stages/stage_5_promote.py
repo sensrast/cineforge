@@ -42,12 +42,13 @@ async def _grant_modern_botapi_rights(ctx:PipelineContext,qid:int|None,channel_i
  except Exception as exc:
   await ctx.db.log(f'Modern welcome-message permission pass was rejected: {exc}','WARNING',qid);return False
 
-async def add_filestore_admin(ctx:PipelineContext,qid:int,channel_id:int)->int:
- bot=await ctx.speed.call(lambda:ctx.client.get_users(ctx.cfg.filestore_bot),qid)
+async def add_filestore_admin(ctx:PipelineContext,qid:int|None,channel_id:int,username:str|None=None)->int:
+ username=(username or ctx.cfg.filestore_bot).lstrip('@')
+ bot=await ctx.speed.call(lambda:ctx.client.get_users(username),qid)
  try:await ctx.speed.call(lambda:ctx.client.promote_chat_member(channel_id,bot.id,FILESTORE_PRIVILEGES),qid)
  except Exception as exc:
-  if 'already' not in str(exc).lower() and 'admin' not in str(exc).lower():raise RuntimeError(f'Could not add @{ctx.cfg.filestore_bot} as channel administrator: {exc}') from exc
- await ctx.db.log('File-store bot added directly as administrator','INFO',qid);return bot.id
+  if 'already' not in str(exc).lower() and 'admin' not in str(exc).lower():raise RuntimeError(f'Could not add @{username} as channel administrator: {exc}') from exc
+ await ctx.db.log(f'@{username} added directly as file-store administrator','INFO',qid);return bot.id
 
 async def add_control_bot_admin(ctx:PipelineContext,qid:int,channel_id:int)->int:
  identity=await get_control_bot_identity(ctx.cfg.control_token);username=identity.get('username')

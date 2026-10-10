@@ -149,3 +149,47 @@ async def run(ctx: PipelineContext, qid: int, movie: str, invite: str, source_me
 
     await ctx.db.patch_state(qid, catalog_added=1)
     return True
+
+async def run_mirror_anime(ctx: PipelineContext, title: str, invite: str, total_episodes: int) -> bool:
+    """Submit one completed mirrored anime using its all-season episode total."""
+    chat = ctx.cfg.catalog_bot
+    qid = None
+    await ctx.speed.call(lambda: ctx.client.send_message(chat, "/admin"), qid)
+    add_patterns = [r"add.*title", r"new.*title", r"add_title", r"➕.*(?:title|anime|movie)"]
+    panel = await _wait_visible_button(ctx, add_patterns)
+    message = await _click_and_wait(ctx, qid, panel, add_patterns)
+    message = await _send_and_wait(ctx, qid, clean_title(title))
+
+    poster = Path(__file__).resolve().parents[2] / "assets" / "catalog_poster.jpg"
+    if not poster.exists():
+        raise RuntimeError("Bundled catalog poster is missing")
+    before = await _snapshot(ctx)
+    await ctx.speed.delay()
+    await ctx.speed.call(lambda: ctx.client.send_photo(chat, str(poster)), qid)
+    message = await _wait_changed(ctx, before)
+    if message.reply_markup and _message_has_button(message, [r"skip", r"⏩"]):
+        message = await _click_and_wait(ctx, qid, message, [r"skip", r"⏩"])
+
+    message = await _send_and_wait(ctx, qid, invite)
+    # This path is intentionally Anime, not Movie or Web Series.
+    message = await _click_and_wait(ctx, qid, message, [r"^\s*(?:🎌\s*)?anime\s*$", r"category.*anime", r"anime"])
+
+    genre = await ctx.db.setting("default_genre", ctx.cfg.default_genre)
+    genre_patterns = [re.escape(genre), r"action", r"drama", r"genre"]
+    genre_panel = await _wait_visible_button(ctx, genre_patterns)
+    await _click_and_wait(ctx, qid, genre_panel, genre_patterns)
+    done_patterns = [r"(?:✅\s*)?done", r"finish(?:ed)?", r"continue"]
+    done_panel = await _wait_visible_button(ctx, done_patterns)
+    await _click_and_wait(ctx, qid, done_panel, done_patterns)
+
+    language = await ctx.db.setting("catalog_language", ctx.cfg.catalog_language)
+    language_panel = await _wait_visible_button(ctx, [re.escape(language), r"hindi"])
+    message = await _click_and_wait(ctx, qid, language_panel, [re.escape(language), r"hindi"])
+    message = await _click_and_wait(ctx, qid, message, [r"completed", r"complete"])
+    # Anime Zone expects the number of episodes here. Send the sum across all
+    # seasons (for example 12 + 12 + 12 = 36), never a per-season count.
+    message = await _send_and_wait(ctx, qid, str(int(total_episodes)))
+    if _message_has_button(message, [r"safe", r"no", r"❌"]):
+        message = await _click_and_wait(ctx, qid, message, [r"safe", r"no", r"❌"])
+    await _click_and_wait(ctx, qid, message, [r"publish", r"submit"])
+    return True

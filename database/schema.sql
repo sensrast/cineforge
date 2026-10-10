@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS mirror_sources (
  status TEXT NOT NULL DEFAULT 'awaiting_confirmation', current_season INTEGER DEFAULT 0,
  current_episode INTEGER DEFAULT 0, last_source_message_id INTEGER DEFAULT 0, end_sticker_file_id TEXT,
  current_end_sticker_message_id INTEGER, current_end_text_message_id INTEGER,
+ catalog_added INTEGER DEFAULT 0,
  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS mirror_season_stickers (
@@ -64,6 +65,12 @@ CREATE TABLE IF NOT EXISTS mirror_slots (
  source_id INTEGER NOT NULL REFERENCES mirror_sources(id) ON DELETE CASCADE,
  season INTEGER NOT NULL, episode INTEGER NOT NULL, quality TEXT NOT NULL,
  source_message_id INTEGER NOT NULL, PRIMARY KEY(source_id,season,episode,quality)
+);
+CREATE TABLE IF NOT EXISTS mirror_season_outputs (
+ source_id INTEGER NOT NULL REFERENCES mirror_sources(id) ON DELETE CASCADE,
+ season INTEGER NOT NULL, batch_link TEXT NOT NULL,
+ start_sticker_message_id INTEGER, final_post_message_id INTEGER, end_sticker_message_id INTEGER,
+ PRIMARY KEY(source_id,season)
 );
 INSERT OR IGNORE INTO settings(key,value) VALUES
  ('limits_enabled','false'),('delay_between_actions','0.0'),('delay_between_movies','0.0'),

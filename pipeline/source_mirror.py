@@ -5,10 +5,14 @@ from pyrogram.handlers import MessageHandler
 from pipeline.context import PipelineContext
 from control.manual_upload import detect_quality,detect_episode,ORDER
 from pipeline.stages.stage_5_promote import add_control_bot_admin,add_filestore_admin
-from utils.notifications import send_channel_sticker,notify_control_bot
+from pipeline.stages.stage_10_catalog import run_mirror_anime
+from pipeline.stages.common import latest_id,newest_after
+from utils.text_parser import extract_batch_link
+from utils.notifications import send_channel_sticker,notify_control_bot,bot_api_request
 from utils.github_store import persist_state
 log=logging.getLogger(__name__)
 _TASKS:set[asyncio.Task]=set();_REGISTERED=False
+ANIME_FILESTORE_BOT='YcAnimefilesbot'
 CAPTION="""‣ {title} (S - {season})
 ╭────────────────────
 ┣Quality: {quality}
@@ -46,7 +50,7 @@ async def create_source(ctx:PipelineContext,source_chat_id:int,source_ref:str,ti
  invite=await ctx.speed.call(lambda:ctx.client.export_chat_invite_link(channel.id),None)
  source_id=await ctx.db.db.execute("INSERT INTO mirror_sources(source_chat_id,source_ref,source_title,destination_chat_id,invite_link,status) VALUES(?,?,?,?,?,'scanning')",(source_chat_id,source_ref,title,channel.id,invite))
  await ctx.db.db.execute("INSERT OR IGNORE INTO created_channels(queue_id,movie_name,content_type,channel_id,invite_link) VALUES(NULL,?,'mirror',?,?)",(title,channel.id,invite))
- await add_control_bot_admin(ctx,None,channel.id);await add_filestore_admin(ctx,None,channel.id)
+ await add_control_bot_admin(ctx,None,channel.id);await add_filestore_admin(ctx,None,channel.id,ANIME_FILESTORE_BOT)
  await _sync_profile_photo(ctx,source_chat_id,channel.id)
  await scan_history(ctx,source_id)
  seasons=await missing_seasons(ctx,source_id)
@@ -103,17 +107,77 @@ async def save_end_sticker(ctx:PipelineContext,source_id:int,file_id:str)->None:
  await ctx.db.db.execute("UPDATE mirror_sources SET end_sticker_file_id=?,status='syncing',current_season=0,current_episode=0,updated_at=CURRENT_TIMESTAMP WHERE id=?",(file_id,source_id))
  await persist_state(ctx.db);start_history(ctx,source_id)
 
-async def _send_season_start(ctx,row,season:int):
+async def _send_season_start(ctx,row,season:int)->int:
  sticker=await ctx.db.db.fetchone('SELECT sticker_file_id FROM mirror_season_stickers WHERE source_id=? AND season=?',(row['id'],season))
  if not sticker:raise RuntimeError(f'Season {season} sticker is not configured')
- await send_channel_sticker(ctx.cfg.control_token,int(row['destination_chat_id']),sticker['sticker_file_id'])
- await ctx.client.send_message(int(row['destination_chat_id']),f'📺 Season {season}')
+ return await send_channel_sticker(ctx.cfg.control_token,int(row['destination_chat_id']),sticker['sticker_file_id'])
 
-async def _send_season_end(ctx,row,season:int)->tuple[int|None,int]:
- sticker=row['end_sticker_file_id'];sticker_id=None
- if sticker:sticker_id=await send_channel_sticker(ctx.cfg.control_token,int(row['destination_chat_id']),sticker)
- text=await ctx.client.send_message(int(row['destination_chat_id']),f'✅ End of Season {season}')
- return sticker_id,text.id
+async def _send_season_end(ctx,row,season:int)->int:
+ if not row['end_sticker_file_id']:raise RuntimeError('End-of-Season sticker is not configured')
+ return await send_channel_sticker(ctx.cfg.control_token,int(row['destination_chat_id']),row['end_sticker_file_id'])
+
+def _batch_link(message)->str|None:
+ link=extract_batch_link(message.text or message.caption or '')
+ if link:return link
+ markup=getattr(message,'reply_markup',None)
+ for buttons in (getattr(markup,'inline_keyboard',None) or []):
+  for button in buttons:
+   link=extract_batch_link(getattr(button,'url',None) or '')
+   if link:return link
+ return None
+
+async def _create_season_batch(ctx,row,start_id:int,end_id:int)->str:
+ """Store one complete season, including both boundary stickers."""
+ chat=ANIME_FILESTORE_BOT;before=await latest_id(ctx.client,chat)
+ await ctx.speed.call(lambda:ctx.client.send_message(chat,'/batch'),None)
+ await asyncio.sleep(2)
+ await ctx.speed.call(lambda:ctx.client.forward_messages(chat,int(row['destination_chat_id']),start_id),None)
+ await asyncio.sleep(2)
+ await ctx.speed.call(lambda:ctx.client.forward_messages(chat,int(row['destination_chat_id']),end_id),None)
+ result=await newest_after(ctx.client,chat,before,ctx.cfg.flow_timeout,lambda m:bool(_batch_link(m)))
+ link=_batch_link(result)
+ if not link:raise RuntimeError(f'@{ANIME_FILESTORE_BOT} did not return a season batch link')
+ return link
+
+def _season_post(title:str,season:int,last_episode:int)->str:
+ return (f'✦ {title} ✦\n'
+         '╭────────────────────\n'
+         f'▷ Season : {season}\n'
+         f'▷ Episode : 1-{last_episode}\n'
+         '♬ Audio: Hindi\n'
+         f'◉ Total Episodes: {last_episode}\n'
+         '♡ Powered by: @YOAnime ,\n'
+         '@India_crunchyroll\n'
+         '╰────────────────────')
+
+async def _finalize_season(ctx,row,season:int,last_episode:int,start_id:int,end_id:int,batch_link:str)->tuple[int,int,int]:
+ channel=int(row['destination_chat_id'])
+ # The file-store bot has already captured this inclusive range. Remove the
+ # temporary sticker/files/messages, then leave the compact screenshot layout.
+ ids=list(range(start_id,end_id+1))
+ for index in range(0,len(ids),100):
+  await ctx.client.delete_messages(channel,ids[index:index+100])
+ sticker=await ctx.db.db.fetchone('SELECT sticker_file_id FROM mirror_season_stickers WHERE source_id=? AND season=?',(row['id'],season))
+ final_start=await send_channel_sticker(ctx.cfg.control_token,channel,sticker['sticker_file_id'])
+ result=await bot_api_request(ctx.cfg.control_token,'sendMessage',{
+  'chat_id':channel,'text':_season_post(row['source_title'],season,last_episode),
+  'reply_markup':{'inline_keyboard':[[{'text':'❐ 𝗪𝗮𝘁𝗰𝗵/𝗗𝗼𝘄𝗻𝗹𝗼𝗮𝗱 ❐','url':batch_link}]]},
+  'disable_web_page_preview':True,
+ })
+ post_id=int(result['message_id'])
+ final_end=await send_channel_sticker(ctx.cfg.control_token,channel,row['end_sticker_file_id'])
+ await ctx.db.db.execute('INSERT INTO mirror_season_outputs(source_id,season,batch_link,start_sticker_message_id,final_post_message_id,end_sticker_message_id) VALUES(?,?,?,?,?,?) ON CONFLICT(source_id,season) DO UPDATE SET batch_link=excluded.batch_link,start_sticker_message_id=excluded.start_sticker_message_id,final_post_message_id=excluded.final_post_message_id,end_sticker_message_id=excluded.end_sticker_message_id',(row['id'],season,batch_link,final_start,post_id,final_end))
+ return final_start,post_id,final_end
+
+async def _pin_first_season(ctx,row)->None:
+ first=await ctx.db.db.fetchone('SELECT start_sticker_message_id FROM mirror_season_outputs WHERE source_id=? ORDER BY season LIMIT 1',(row['id'],))
+ if not first:return
+ await bot_api_request(ctx.cfg.control_token,'pinChatMessage',{'chat_id':int(row['destination_chat_id']),'message_id':int(first['start_sticker_message_id']),'disable_notification':True})
+ await asyncio.sleep(.5)
+ ids=[]
+ async for message in ctx.client.get_chat_history(int(row['destination_chat_id']),limit=6):
+  if getattr(message,'service',None) or getattr(message,'pinned_message',None):ids.append(message.id)
+ if ids:await ctx.client.delete_messages(int(row['destination_chat_id']),ids)
 
 async def _publish_episode(ctx,row,season:int,episode:int,items:list[dict]):
  # Build one clean slot per quality. Reposts/alternate duplicates are reduced to
@@ -147,18 +211,26 @@ async def _publish_episode(ctx,row,season:int,episode:int,items:list[dict]):
 async def sync_history(ctx:PipelineContext,source_id:int):
  try:
   row=await ctx.db.db.fetchone('SELECT * FROM mirror_sources WHERE id=?',(source_id,))
+  await add_filestore_admin(ctx,None,int(row['destination_chat_id']),ANIME_FILESTORE_BOT)
   groups=await ctx.db.db.fetchall('SELECT DISTINCT season,episode FROM mirror_pending WHERE source_id=? ORDER BY season,episode',(source_id,))
-  seasons=sorted({int(group['season']) for group in groups});final_sticker=None;final_text=None;last_episode=0
+  seasons=sorted({int(group['season']) for group in groups});last_episode=0;final_sticker=None;total_episodes=len(groups)
   for season in seasons:
-   await _send_season_start(ctx,row,season)
+   start_id=await _send_season_start(ctx,row,season)
    season_groups=[group for group in groups if int(group['season'])==season]
    for group in season_groups:
     episode=int(group['episode']);items=[dict(x) for x in await ctx.db.db.fetchall('SELECT * FROM mirror_pending WHERE source_id=? AND season=? AND episode=? ORDER BY source_message_id',(source_id,season,episode))]
     await _publish_episode(ctx,row,season,episode,items);last_episode=episode
     await persist_state(ctx.db)
-   final_sticker,final_text=await _send_season_end(ctx,row,season)
+   end_id=await _send_season_end(ctx,row,season)
+   batch_link=await _create_season_batch(ctx,row,start_id,end_id)
+   _,_,final_sticker=await _finalize_season(ctx,row,season,last_episode,start_id,end_id,batch_link)
+   await persist_state(ctx.db)
   latest=seasons[-1] if seasons else 0
-  await ctx.db.db.execute("UPDATE mirror_sources SET status='live',current_season=?,current_episode=?,current_end_sticker_message_id=?,current_end_text_message_id=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",(latest,last_episode,final_sticker,final_text,source_id));await persist_state(ctx.db)
+  if seasons:await _pin_first_season(ctx,row)
+  if seasons and not int(row['catalog_added'] or 0):
+   await run_mirror_anime(ctx,row['source_title'],row['invite_link'],total_episodes)
+   await ctx.db.db.execute('UPDATE mirror_sources SET catalog_added=1 WHERE id=?',(source_id,))
+  await ctx.db.db.execute("UPDATE mirror_sources SET status='live',current_season=?,current_episode=?,current_end_sticker_message_id=?,current_end_text_message_id=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?",(latest,last_episode,final_sticker,source_id));await persist_state(ctx.db)
 
  except Exception as exc:
   log.exception('Historical source mirror failed');await ctx.db.db.execute("UPDATE mirror_sources SET status='failed',updated_at=CURRENT_TIMESTAMP WHERE id=?",(source_id,));await persist_state(ctx.db);await notify_control_bot(ctx.cfg.control_token,ctx.cfg.owner_id,f'❌ Mirror failed: {exc}')
@@ -174,7 +246,7 @@ async def restart_mirror(ctx:PipelineContext,source_id:int):
   async for message in ctx.client.get_chat_history(int(row['destination_chat_id'])):ids.append(message.id)
   for index in range(0,len(ids),100):
    if ids[index:index+100]:await ctx.client.delete_messages(int(row['destination_chat_id']),ids[index:index+100])
-  await ctx.db.db.execute('DELETE FROM mirror_seen WHERE source_id=?',(source_id,));await ctx.db.db.execute('DELETE FROM mirror_pending WHERE source_id=?',(source_id,));await ctx.db.db.execute('DELETE FROM mirror_slots WHERE source_id=?',(source_id,))
+  await ctx.db.db.execute('DELETE FROM mirror_seen WHERE source_id=?',(source_id,));await ctx.db.db.execute('DELETE FROM mirror_pending WHERE source_id=?',(source_id,));await ctx.db.db.execute('DELETE FROM mirror_slots WHERE source_id=?',(source_id,));await ctx.db.db.execute('DELETE FROM mirror_season_outputs WHERE source_id=?',(source_id,))
   await _sync_profile_photo(ctx,int(row['source_chat_id']),int(row['destination_chat_id']))
   await scan_history(ctx,source_id)
   await ctx.db.db.execute("UPDATE mirror_sources SET status='syncing',current_season=0,current_episode=0,last_source_message_id=0,current_end_sticker_message_id=NULL,current_end_text_message_id=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?",(source_id,))
@@ -190,20 +262,14 @@ async def _flush_future(ctx,source_id,season,episode):
  if not sticker:
   await ctx.db.db.execute("UPDATE mirror_sources SET status='awaiting_stickers' WHERE id=?",(source_id,));await persist_state(ctx.db);await notify_control_bot(ctx.cfg.control_token,ctx.cfg.owner_id,f'📤 Upload the Season {season} sticker from Source Mirror panel; files are safely pending.');return
  current=int(row['current_season'] or 0);current_episode=int(row['current_episode'] or 0)
- # Never inject reposts from an older/already-closed season into the middle of
- # the clean destination. Mark them handled without publishing.
+ # Never republish old-season reposts. A genuinely new episode requires a new
+ # direct batch for its season, so rebuild the compact season layouts from the
+ # authoritative source after the collection buffer closes.
  if season<current or (season==current and episode<=current_episode):
   for item in items:
    await ctx.db.db.execute('INSERT OR IGNORE INTO mirror_seen(source_id,source_message_id) VALUES(?,?)',(source_id,item['source_message_id']));await ctx.db.db.execute('DELETE FROM mirror_pending WHERE id=?',(item['id'],))
   await persist_state(ctx.db);return
- if season==current:
-  ids=[value for value in (row['current_end_sticker_message_id'],row['current_end_text_message_id']) if value]
-  if ids:await ctx.client.delete_messages(int(row['destination_chat_id']),ids)
- else:
-  await _send_season_start(ctx,row,season)
- await _publish_episode(ctx,row,season,episode,items)
- end_sticker,end_text=await _send_season_end(ctx,row,season)
- await ctx.db.db.execute("UPDATE mirror_sources SET status='live',current_season=?,current_episode=?,current_end_sticker_message_id=?,current_end_text_message_id=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",(season,episode,end_sticker,end_text,source_id));await persist_state(ctx.db)
+ await restart_mirror(ctx,source_id)
 
 async def _future_handler(ctx,client,message):
  media=_media(message)
