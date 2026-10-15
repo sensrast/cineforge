@@ -13,6 +13,9 @@ from utils.github_store import persist_state
 log=logging.getLogger(__name__)
 _TASKS:set[asyncio.Task]=set();_REGISTERED=False
 ANIME_FILESTORE_BOT='YcAnimefilesbot'
+# Large season ranges need time to be committed by the file-store bot after it
+# returns the deep link. Never delete the source channel range immediately.
+BATCH_STORAGE_SETTLE_SECONDS=10
 CAPTION="""‣ {title} (S - {season})
 ╭────────────────────
 ┣Quality: {quality}
@@ -159,7 +162,10 @@ def _season_post(title:str,season:int,last_episode:int)->str:
 
 async def _finalize_season(ctx,row,season:int,last_episode:int,start_id:int,end_id:int,batch_link:str)->tuple[int,int,int]:
  channel=int(row['destination_chat_id'])
- # The file-store bot has already captured this inclusive range. Remove the
+ # A deep link can arrive before a large inclusive range has finished being
+ # committed. Keep every sticker and file available for a full settling window.
+ await asyncio.sleep(BATCH_STORAGE_SETTLE_SECONDS)
+ # The file-store bot has now captured this inclusive range. Remove the
  # temporary sticker/files/messages, then leave the compact screenshot layout.
  ids=list(range(start_id,end_id+1))
  for index in range(0,len(ids),100):

@@ -1,4 +1,4 @@
-from pipeline.source_mirror import _channel_title, _season_post
+from pipeline.source_mirror import BATCH_STORAGE_SETTLE_SECONDS, _channel_title, _season_post
 
 
 def test_season_post_matches_exact_compact_layout():
@@ -14,6 +14,10 @@ def test_season_post_matches_exact_compact_layout():
         "╚━━━━━━━━━━━━━━━━━━━━━╝"
     )
     assert "\n\n" not in text
+
+
+def test_large_batches_settle_before_channel_cleanup():
+    assert BATCH_STORAGE_SETTLE_SECONDS >= 10
 
 
 def test_hindi_dubbed_channel_suffix_is_replaced():
