@@ -1,6 +1,6 @@
 """Isolated subscriber-channel mirror: historical import plus future media sync."""
 from __future__ import annotations
-import asyncio,logging,os,re,tempfile
+import asyncio,logging,os,re,tempfile,time
 from pyrogram.handlers import MessageHandler
 from pipeline.context import PipelineContext
 from control.manual_upload import detect_quality,detect_episode,ORDER
@@ -48,10 +48,10 @@ async def _sync_profile_photo(ctx:PipelineContext,source_chat_id:int,destination
    except OSError:pass
 
 def _display_title(title:str)->str:
- return re.sub(r'\s*\(?\s*hindi\s+dubbed\s*\)?(?:\s+available)?\s*$','',title or '',flags=re.I).strip()
+ return re.sub(r'\s*(?:\(\s*(?:hindi\s+dubbed|in\s+hindi)\s*\)|(?:hindi\s+dubbed|in\s+hindi))(?:\s+available)?\s*$','',title or '',flags=re.I).strip()
 
 def _channel_title(title:str)->str:
- if re.search(r'\bhindi\s+dubbed\b',title or '',re.I):return f'{_display_title(title)} (In Hindi)'
+ if re.search(r'\bhindi\s+dubbed\b|\bin\s+hindi\b',title or '',re.I):return f'{_display_title(title)} In Hindi'
  return title.strip()
 
 async def create_source(ctx:PipelineContext,source_chat_id:int,source_ref:str,title:str)->tuple[int,list[int],str]:
@@ -138,18 +138,19 @@ def _batch_link(message)->str|None:
    if link:return link
  return None
 
-async def _create_season_batch(ctx,row,start_id:int,end_id:int)->str:
- """Store one complete season, including both boundary stickers."""
+async def _create_season_batch(ctx,row,start_id:int,end_id:int)->tuple[str,float]:
+ """Store one complete season and timestamp the final boundary forward."""
  chat=ANIME_FILESTORE_BOT;before=await latest_id(ctx.client,chat)
  await ctx.speed.call(lambda:ctx.client.send_message(chat,'/batch'),None)
  await asyncio.sleep(2)
  await ctx.speed.call(lambda:ctx.client.forward_messages(chat,int(row['destination_chat_id']),start_id),None)
  await asyncio.sleep(2)
  await ctx.speed.call(lambda:ctx.client.forward_messages(chat,int(row['destination_chat_id']),end_id),None)
+ last_forwarded_at=time.monotonic()
  result=await newest_after(ctx.client,chat,before,ctx.cfg.flow_timeout,lambda m:bool(_batch_link(m)))
  link=_batch_link(result)
  if not link:raise RuntimeError(f'@{ANIME_FILESTORE_BOT} did not return a season batch link')
- return link
+ return link,last_forwarded_at
 
 def _season_post(title:str,season:int,last_episode:int)->str:
  return (f'✦ {_display_title(title)} ✦\n'
@@ -161,16 +162,11 @@ def _season_post(title:str,season:int,last_episode:int)->str:
          '♡ 𝗣𝗼𝘄𝗲𝗿𝗲𝗱 𝗯𝘆: @YCAnime , @India_crunchyroll\n'
          '╚━━━━━━━━━━━━━━━━━━━━━╝')
 
-async def _finalize_season(ctx,row,season:int,last_episode:int,start_id:int,end_id:int,batch_link:str)->tuple[int,int,int]:
+async def _finalize_season(ctx,row,season:int,last_episode:int,start_id:int,end_id:int,batch_link:str,last_forwarded_at:float)->tuple[int,int,int]:
  channel=int(row['destination_chat_id'])
- # A deep link can arrive before a large inclusive range has finished being
- # committed. Keep every sticker and file available for a full settling window.
- await asyncio.sleep(BATCH_STORAGE_SETTLE_SECONDS)
- # The file-store bot has now captured this inclusive range. Remove the
- # temporary sticker/files/messages, then leave the compact screenshot layout.
- ids=list(range(start_id,end_id+1))
- for index in range(0,len(ids),100):
-  await ctx.client.delete_messages(channel,ids[index:index+100])
+ # Use the mandatory storage window to create the compact final layout. These
+ # new messages are after end_id, so deleting the temporary range cannot touch
+ # them. Cleanup never begins until 10 seconds after forwarding the last item.
  sticker=await ctx.db.db.fetchone('SELECT sticker_file_id FROM mirror_season_stickers WHERE source_id=? AND season=?',(row['id'],season))
  final_start=await send_channel_sticker(ctx.cfg.control_token,channel,sticker['sticker_file_id'])
  result=await bot_api_request(ctx.cfg.control_token,'sendMessage',{
@@ -180,6 +176,11 @@ async def _finalize_season(ctx,row,season:int,last_episode:int,start_id:int,end_
  })
  post_id=int(result['message_id'])
  final_end=await send_channel_sticker(ctx.cfg.control_token,channel,row['end_sticker_file_id'])
+ remaining=BATCH_STORAGE_SETTLE_SECONDS-(time.monotonic()-last_forwarded_at)
+ if remaining>0:await asyncio.sleep(remaining)
+ ids=list(range(start_id,end_id+1))
+ for index in range(0,len(ids),100):
+  await ctx.client.delete_messages(channel,ids[index:index+100])
  await ctx.db.db.execute('INSERT INTO mirror_season_outputs(source_id,season,batch_link,start_sticker_message_id,final_post_message_id,end_sticker_message_id) VALUES(?,?,?,?,?,?) ON CONFLICT(source_id,season) DO UPDATE SET batch_link=excluded.batch_link,start_sticker_message_id=excluded.start_sticker_message_id,final_post_message_id=excluded.final_post_message_id,end_sticker_message_id=excluded.end_sticker_message_id',(row['id'],season,batch_link,final_start,post_id,final_end))
  return final_start,post_id,final_end
 
@@ -236,8 +237,8 @@ async def _sync_history_locked(ctx:PipelineContext,source_id:int):
     await _publish_episode(ctx,row,season,episode,items);last_episode=episode
     await persist_state(ctx.db)
    end_id=await _send_season_end(ctx,row,season)
-   batch_link=await _create_season_batch(ctx,row,start_id,end_id)
-   _,_,final_sticker=await _finalize_season(ctx,row,season,last_episode,start_id,end_id,batch_link)
+   batch_link,last_forwarded_at=await _create_season_batch(ctx,row,start_id,end_id)
+   _,_,final_sticker=await _finalize_season(ctx,row,season,last_episode,start_id,end_id,batch_link,last_forwarded_at)
    await persist_state(ctx.db)
   latest=seasons[-1] if seasons else 0
   if seasons:await _pin_first_season(ctx,row)
