@@ -23,4 +23,5 @@ def test_large_batches_settle_before_channel_cleanup():
 def test_hindi_dubbed_channel_suffix_is_replaced():
     assert _channel_title("Spy x family (Hindi Dubbed)") == "Spy x family (In Hindi)"
     assert _channel_title("Spy x family Hindi Dubbed") == "Spy x family (In Hindi)"
+    assert _channel_title("Spy x family Hindi Dubbed Available") == "Spy x family (In Hindi)"
     assert _channel_title("Spy x family (In Hindi)") == "Spy x family (In Hindi)"

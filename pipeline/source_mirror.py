@@ -12,6 +12,7 @@ from utils.notifications import send_channel_sticker,notify_control_bot,bot_api_
 from utils.github_store import persist_state
 log=logging.getLogger(__name__)
 _TASKS:set[asyncio.Task]=set();_REGISTERED=False
+_HISTORY_LOCK=asyncio.Lock()
 ANIME_FILESTORE_BOT='YcAnimefilesbot'
 # Large season ranges need time to be committed by the file-store bot after it
 # returns the deep link. Never delete the source channel range immediately.
@@ -47,7 +48,7 @@ async def _sync_profile_photo(ctx:PipelineContext,source_chat_id:int,destination
    except OSError:pass
 
 def _display_title(title:str)->str:
- return re.sub(r'\s*\(?\s*hindi\s+dubbed\s*\)?\s*$','',title or '',flags=re.I).strip()
+ return re.sub(r'\s*\(?\s*hindi\s+dubbed\s*\)?(?:\s+available)?\s*$','',title or '',flags=re.I).strip()
 
 def _channel_title(title:str)->str:
  if re.search(r'\bhindi\s+dubbed\b',title or '',re.I):return f'{_display_title(title)} (In Hindi)'
@@ -221,7 +222,7 @@ async def _publish_episode(ctx,row,season:int,episode:int,items:list[dict]):
   await ctx.db.db.execute('INSERT OR IGNORE INTO mirror_seen(source_id,source_message_id) VALUES(?,?)',(row['id'],item['source_message_id']))
   await ctx.db.db.execute('DELETE FROM mirror_pending WHERE source_id=? AND source_message_id=?',(row['id'],item['source_message_id']))
 
-async def sync_history(ctx:PipelineContext,source_id:int):
+async def _sync_history_locked(ctx:PipelineContext,source_id:int):
  try:
   row=await ctx.db.db.fetchone('SELECT * FROM mirror_sources WHERE id=?',(source_id,))
   await add_filestore_admin(ctx,None,int(row['destination_chat_id']),ANIME_FILESTORE_BOT)
@@ -248,6 +249,12 @@ async def sync_history(ctx:PipelineContext,source_id:int):
  except Exception as exc:
   log.exception('Historical source mirror failed');await ctx.db.db.execute("UPDATE mirror_sources SET status='failed',updated_at=CURRENT_TIMESTAMP WHERE id=?",(source_id,));await persist_state(ctx.db);await notify_control_bot(ctx.cfg.control_token,ctx.cfg.owner_id,f'❌ Mirror failed: {exc}')
 
+async def sync_history(ctx:PipelineContext,source_id:int):
+ # File-store bots support one /batch conversation at a time. Serializing
+ # mirrors prevents different season endpoints from crossing each other.
+ async with _HISTORY_LOCK:
+  await _sync_history_locked(ctx,source_id)
+
 def start_history(ctx,source_id):
  if not any(t.get_name()==f'mirror-history-{source_id}' for t in _TASKS):_spawn(sync_history(ctx,source_id),f'mirror-history-{source_id}')
 
@@ -255,7 +262,9 @@ async def restart_mirror(ctx:PipelineContext,source_id:int):
  """Clean a partial destination and rebuild it deterministically from message one."""
  try:
   row=await ctx.db.db.fetchone('SELECT * FROM mirror_sources WHERE id=?',(source_id,))
-  await ctx.client.set_chat_title(int(row['destination_chat_id']),_channel_title(row['source_title']))
+  try:await ctx.client.set_chat_title(int(row['destination_chat_id']),_channel_title(row['source_title']))
+  except Exception as exc:
+   if 'chat_not_modified' not in str(exc).lower():raise
   ids=[]
   async for message in ctx.client.get_chat_history(int(row['destination_chat_id'])):ids.append(message.id)
   for index in range(0,len(ids),100):
