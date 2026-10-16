@@ -1,20 +1,37 @@
 """Telegram Bot API helpers for owner notifications and channel posts."""
 from __future__ import annotations
+import asyncio
 from typing import Any
 import aiohttp
 
 async def bot_api_request(token: str, method: str, payload: dict[str, Any] | None = None) -> Any:
-    """Call a Telegram Bot API method and return its result."""
+    """Call Telegram Bot API, surviving brief outbound-network interruptions."""
     if not token:
         raise RuntimeError("Control-bot token is not configured")
     endpoint = f"https://api.telegram.org/bot{token}/{method}"
     timeout = aiohttp.ClientTimeout(total=30)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.post(endpoint, json=payload or {}) as response:
-            data = await response.json(content_type=None)
-            if not response.ok or not data.get("ok"):
-                raise RuntimeError(f"Bot API {method} failed: {data.get('description', response.status)}")
-            return data.get("result")
+    last_error = None
+    for attempt in range(5):
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(endpoint, json=payload or {}) as response:
+                    if response.status in {502, 503, 504} and attempt < 4:
+                        await response.read()
+                        await asyncio.sleep(2 ** attempt)
+                        continue
+                    data = await response.json(content_type=None)
+                    if not response.ok or not data.get("ok"):
+                        raise RuntimeError(f"Bot API {method} failed: {data.get('description', response.status)}")
+                    return data.get("result")
+        except aiohttp.ClientConnectorError as exc:
+            # No TCP connection was established, so retrying cannot duplicate a
+            # Telegram send. Render occasionally reports a sub-second
+            # "Network is unreachable" even while the service itself is healthy.
+            last_error = exc
+            if attempt >= 4:
+                break
+            await asyncio.sleep(2 ** attempt)
+    raise RuntimeError(f"Telegram Bot API temporarily unreachable after 5 attempts: {last_error}") from last_error
 
 async def notify_control_bot(token: str, owner_id: int, text: str) -> None:
     """Send a private message to the configured owner via the control bot."""
