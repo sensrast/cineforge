@@ -1,6 +1,7 @@
 import asyncio
 from pipeline.context import PipelineContext
-from pipeline.stages.common import latest_id,wait_for_batch_link
+from pipeline.stages.common import ModernBatchResponseRequired,latest_id,wait_for_batch_link
+from pipeline.stages.stage_5_promote import wait_modern_batch_link
 
 async def run(ctx:PipelineContext,qid:int,channel_id:int,forwarded:list[dict])->str:
  if not forwarded:raise RuntimeError('No channel files available for batch')
@@ -17,5 +18,7 @@ async def run(ctx:PipelineContext,qid:int,channel_id:int,forwarded:list[dict])->
  # Newer file-store bots first send/edit a Processing message. Treat that as
  # an acknowledgement and keep watching the same message (including buttons)
  # for up to 20 minutes instead of failing at the normal 60-second flow limit.
- link=await wait_for_batch_link(ctx.client,chat,before,ctx.cfg.flow_timeout,1200)
+ try:link=await wait_for_batch_link(ctx.client,chat,before,ctx.cfg.flow_timeout,1200)
+ except ModernBatchResponseRequired:
+  link=await wait_modern_batch_link(ctx,chat,before,1200)
  await ctx.db.patch_state(qid,batch_link=link);return link

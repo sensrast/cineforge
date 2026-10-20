@@ -4,9 +4,9 @@ import asyncio,logging,os,re,tempfile,time
 from pyrogram.handlers import MessageHandler
 from pipeline.context import PipelineContext
 from control.manual_upload import detect_quality,detect_episode,ORDER
-from pipeline.stages.stage_5_promote import add_control_bot_admin,add_filestore_admin
+from pipeline.stages.stage_5_promote import add_control_bot_admin,add_filestore_admin,wait_modern_batch_link as wait_modern_filestore_link
 from pipeline.stages.stage_10_catalog import run_mirror_anime
-from pipeline.stages.common import latest_id,wait_for_batch_link
+from pipeline.stages.common import ModernBatchResponseRequired,latest_id,wait_for_batch_link
 from utils.notifications import send_channel_sticker,notify_control_bot,bot_api_request
 from utils.github_store import persist_state
 log=logging.getLogger(__name__)
@@ -136,7 +136,9 @@ async def _create_season_batch(ctx,row,start_id:int,end_id:int)->tuple[str,float
  await asyncio.sleep(2)
  await ctx.speed.call(lambda:ctx.client.forward_messages(chat,int(row['destination_chat_id']),end_id),None)
  last_forwarded_at=time.monotonic()
- link=await wait_for_batch_link(ctx.client,chat,before,ctx.cfg.flow_timeout,1200)
+ try:link=await wait_for_batch_link(ctx.client,chat,before,ctx.cfg.flow_timeout,1200)
+ except ModernBatchResponseRequired:
+  link=await wait_modern_filestore_link(ctx,chat,before,1200)
  return link,last_forwarded_at
 
 def _season_post(title:str,season:int,last_episode:int)->str:

@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 from pipeline.stages.common import batch_link_from_message, is_batch_processing
+from utils.modern_admin import _modern_message_link
 
 
 def message(text="", url=None):
@@ -14,6 +15,13 @@ def test_processing_response_is_an_acknowledgement():
     assert is_batch_processing(message("⏳ Processing your batch, please wait..."))
     assert is_batch_processing(message("Generating link"))
     assert not is_batch_processing(message("Batch created successfully"))
+
+
+def test_modern_todo_media_link_is_extracted():
+    class ModernMessage:
+        def to_dict(self):
+            return {"media": {"todo": {"list": [{"title": "Ready", "url": "https://t.me/ANIMEZONEFILESBOT?start=b_modern123"}]}}}
+    assert _modern_message_link(ModernMessage()) == "https://t.me/ANIMEZONEFILESBOT?start=b_modern123"
 
 
 def test_batch_link_can_arrive_in_text_or_button():

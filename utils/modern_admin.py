@@ -1,6 +1,6 @@
 """Briefly use MTProto layer 229 while Pyrogram is offline to grant new rights."""
 from __future__ import annotations
-import asyncio,base64,struct
+import asyncio,base64,re,struct,time
 from telethon import TelegramClient
 from telethon.crypto import AuthKey
 from telethon.sessions import MemorySession
@@ -19,6 +19,33 @@ def _rights()->ChatAdminRights:
   ban_users=True,invite_users=True,pin_messages=True,add_admins=True,manage_call=True,other=True,
   manage_topics=True,post_stories=True,edit_stories=True,delete_stories=True,
   manage_direct_messages=True,manage_ranks=True,manage_linked_peers=True,manage_welcome_messages=True)
+
+_BATCH_LINK_RE=re.compile(r'https?://t\.me/[A-Za-z0-9_]+\?start=[A-Za-z0-9_-]+')
+
+def _modern_message_link(message)->str|None:
+ """Find links in text, buttons, or modern Todo/checklist media."""
+ try:payload=repr(message.to_dict())
+ except Exception:payload=repr(message)
+ match=_BATCH_LINK_RE.search(payload)
+ return match.group(0) if match else None
+
+async def wait_modern_batch_link(cfg,bot_username:str,after_id:int,timeout:int=1200)->str:
+ """Read Layer-229 checklist edits that old Pyrogram exposes as unsupported."""
+ client=TelegramClient(_session(cfg.session_string),cfg.api_id,cfg.api_hash,receive_updates=False)
+ try:
+  await client.connect()
+  if not await client.is_user_authorized():raise RuntimeError('Layer-229 session is not authorized')
+  entity=await client.get_input_entity('@'+bot_username.lstrip('@'))
+  deadline=time.monotonic()+max(30,int(timeout))
+  while time.monotonic()<deadline:
+   messages=await client.get_messages(entity,limit=50,min_id=int(after_id))
+   for message in messages:
+    link=_modern_message_link(message)
+    if link:return link
+   await asyncio.sleep(1)
+  raise TimeoutError(f'No modern batch link from @{bot_username} in {timeout}s')
+ finally:
+  await client.disconnect()
 
 async def grant_control_bot_rights(cfg,channel_ids:list[int],bot_username:str,owner_id:int|None=None)->dict[int,bool]:
  """Grant the control bot, and any joined owner, all current rights while Pyrogram is offline."""

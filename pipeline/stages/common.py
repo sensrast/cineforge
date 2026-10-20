@@ -2,6 +2,10 @@ from __future__ import annotations
 import asyncio,re,time
 from pyrogram.types import Message
 from utils.text_parser import extract_batch_link
+
+class ModernBatchResponseRequired(RuntimeError):
+ pass
+
 async def newest_after(client,chat_id,after_id:int,timeout:int,predicate=None)->Message:
  end=time.monotonic()+timeout
  while time.monotonic()<end:
@@ -35,6 +39,10 @@ async def wait_for_batch_link(client,chat_id,after_id:int,timeout:int,processing
    if message.id<=after_id:continue
    link=batch_link_from_message(message)
    if link:return link
+   if message.media and 'unsupported' in str(message.media).lower():
+    # Layer-158 represents modern checklist/Todo responses as unsupported
+    # media, hiding the eventual deep link. Read it with Layer 229 instead.
+    raise ModernBatchResponseRequired('File bot replied with modern checklist media')
    if is_batch_processing(message) and not processing_seen:
     processing_seen=True
     # File bots can take several minutes to index large ranges. Once they

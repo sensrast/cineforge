@@ -7,7 +7,7 @@ from pyrogram.types import ChatPrivileges
 from pipeline.context import PipelineContext
 from utils.notifications import notify_control_bot,get_control_bot_identity,bot_api_request
 from utils.github_store import persist_state
-from utils.modern_admin import grant_control_bot_rights
+from utils.modern_admin import grant_control_bot_rights,wait_modern_batch_link as _wait_modern_batch_link
 from utils.safe_dialogs import iter_dialogs
 log=logging.getLogger(__name__)
 
@@ -75,6 +75,17 @@ async def _modernize_control_bot(ctx:PipelineContext,qid:int,channel_id:int,user
      pass
    finally:
     _CLIENT_READY.set()
+
+async def wait_modern_batch_link(ctx:PipelineContext,bot_username:str,after_id:int,timeout:int=1200)->str:
+ """Pause Layer-158 safely while Layer 229 reads a checklist batch result."""
+ async with _PROMOTION_LOCK:
+  _CLIENT_READY.clear()
+  try:
+   await ctx.client.stop()
+   return await _wait_modern_batch_link(ctx.cfg,bot_username,after_id,timeout)
+  finally:
+   try:await ctx.client.start()
+   finally:_CLIENT_READY.set()
 
 async def _find_owner(ctx:PipelineContext,channel_id:int):
  async for member in ctx.client.get_chat_members(channel_id,limit=500):
