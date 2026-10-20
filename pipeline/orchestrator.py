@@ -225,7 +225,11 @@ class Orchestrator:
             # Earlier search/fetch results remain valid and are reused.
             state_now=await self.ctx.db.state(qid)
             broken_channel=(state_now['channel_id'] if state_now else None)
-            if broken_channel and stage in (6,7) and ('channel_private' in text or 'channel private' in text):
+            inaccessible=any(marker in text for marker in (
+                'channel_private','channel private','peer_id_invalid','peer id invalid',
+                'bot was kicked','chat not found','channel_invalid',
+            ))
+            if broken_channel and stage in (6,7) and inaccessible:
                 await self.ctx.db.remove_channel(int(broken_channel))
                 await self.ctx.db.patch_state(
                     qid,channel_id=None,invite_link=None,owner_promoted=0,
