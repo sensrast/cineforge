@@ -1,4 +1,4 @@
-import time
+import asyncio,time
 from pipeline.context import PipelineContext
 from userbot.speed_controller import DeferredFloodWait
 from utils.notifications import notify_control_bot
@@ -43,7 +43,13 @@ async def run(ctx: PipelineContext, qid: int, movie: str, content_type: str = "m
     await ctx.db.patch_state(qid, channel_id=channel_id, invite_link=invite)
     await ctx.db.register_channel(qid, movie, channel.id, invite, content_type)
     await persist_state(ctx.db)
-    await ensure_created_channels_folder(ctx,[channel.id],qid)
+
+    # Folder synchronization may scan hundreds of dialogs and Telegram can
+    # throttle that scan. It must not hold the movie pipeline at Stage 4.
+    asyncio.create_task(
+        ensure_created_channels_folder(ctx,[channel.id],qid),
+        name=f'channel-folder-{qid}',
+    )
 
     # Send through the control bot, which already has a private chat with the
     # owner. An MTProto account cannot always resolve an arbitrary numeric user
