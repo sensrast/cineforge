@@ -1,7 +1,6 @@
 import asyncio
 from pipeline.context import PipelineContext
-from pipeline.stages.common import latest_id,newest_after
-from utils.text_parser import extract_batch_link
+from pipeline.stages.common import latest_id,wait_for_batch_link
 
 async def run(ctx:PipelineContext,qid:int,channel_id:int,forwarded:list[dict])->str:
  if not forwarded:raise RuntimeError('No channel files available for batch')
@@ -15,7 +14,8 @@ async def run(ctx:PipelineContext,qid:int,channel_id:int,forwarded:list[dict])->
  await ctx.speed.call(lambda:ctx.client.forward_messages(chat,channel_id,first),qid)
  await asyncio.sleep(2)
  await ctx.speed.call(lambda:ctx.client.forward_messages(chat,channel_id,last),qid)
- result=await newest_after(ctx.client,chat,before,ctx.cfg.flow_timeout,lambda m:bool(extract_batch_link(m.text or m.caption or '')))
- link=extract_batch_link(result.text or result.caption or '')
- if not link:raise RuntimeError('File-store bot did not return a batch link')
+ # Newer file-store bots first send/edit a Processing message. Treat that as
+ # an acknowledgement and keep watching the same message (including buttons)
+ # for up to 20 minutes instead of failing at the normal 60-second flow limit.
+ link=await wait_for_batch_link(ctx.client,chat,before,ctx.cfg.flow_timeout,1200)
  await ctx.db.patch_state(qid,batch_link=link);return link

@@ -6,8 +6,7 @@ from pipeline.context import PipelineContext
 from control.manual_upload import detect_quality,detect_episode,ORDER
 from pipeline.stages.stage_5_promote import add_control_bot_admin,add_filestore_admin
 from pipeline.stages.stage_10_catalog import run_mirror_anime
-from pipeline.stages.common import latest_id,newest_after
-from utils.text_parser import extract_batch_link
+from pipeline.stages.common import latest_id,wait_for_batch_link
 from utils.notifications import send_channel_sticker,notify_control_bot,bot_api_request
 from utils.github_store import persist_state
 log=logging.getLogger(__name__)
@@ -128,16 +127,6 @@ async def _send_season_end(ctx,row,season:int)->int:
  if not row['end_sticker_file_id']:raise RuntimeError('End-of-Season sticker is not configured')
  return await send_channel_sticker(ctx.cfg.control_token,int(row['destination_chat_id']),row['end_sticker_file_id'])
 
-def _batch_link(message)->str|None:
- link=extract_batch_link(message.text or message.caption or '')
- if link:return link
- markup=getattr(message,'reply_markup',None)
- for buttons in (getattr(markup,'inline_keyboard',None) or []):
-  for button in buttons:
-   link=extract_batch_link(getattr(button,'url',None) or '')
-   if link:return link
- return None
-
 async def _create_season_batch(ctx,row,start_id:int,end_id:int)->tuple[str,float]:
  """Store one complete season and timestamp the final boundary forward."""
  chat=ANIME_FILESTORE_BOT;before=await latest_id(ctx.client,chat)
@@ -147,9 +136,7 @@ async def _create_season_batch(ctx,row,start_id:int,end_id:int)->tuple[str,float
  await asyncio.sleep(2)
  await ctx.speed.call(lambda:ctx.client.forward_messages(chat,int(row['destination_chat_id']),end_id),None)
  last_forwarded_at=time.monotonic()
- result=await newest_after(ctx.client,chat,before,ctx.cfg.flow_timeout,lambda m:bool(_batch_link(m)))
- link=_batch_link(result)
- if not link:raise RuntimeError(f'@{ANIME_FILESTORE_BOT} did not return a season batch link')
+ link=await wait_for_batch_link(ctx.client,chat,before,ctx.cfg.flow_timeout,1200)
  return link,last_forwarded_at
 
 def _season_post(title:str,season:int,last_episode:int)->str:
