@@ -130,7 +130,13 @@ async def _reconciliation_loop(ctx:PipelineContext)->None:
  while True:
   changed=False
   try:
-   rows=await ctx.db.db.fetchall('SELECT * FROM created_channels WHERE channel_id IS NOT NULL ORDER BY id')
+   # Movie operations have priority. Scanning hundreds of old channels for an
+   # owner membership can trigger GetFullUser cooldowns and starve /batch.
+   active=await ctx.db.db.fetchone("SELECT 1 FROM queue WHERE status IN ('pending','searching','filtering','fetching','creating_channel','assigning_channel_admins','copying','batching','shortening','backing_up_and_posting','cataloging','promoting') LIMIT 1")
+   if active:
+    await asyncio.sleep(30)
+    continue
+   rows=await ctx.db.db.fetchall('SELECT * FROM created_channels WHERE channel_id IS NOT NULL AND owner_admin_confirmed=0 ORDER BY id')
    for row in rows:
     try:
      before=bool(row['owner_admin_confirmed'])
