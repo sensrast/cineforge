@@ -72,6 +72,23 @@ CREATE TABLE IF NOT EXISTS mirror_season_outputs (
  start_sticker_message_id INTEGER, final_post_message_id INTEGER, end_sticker_message_id INTEGER,
  PRIMARY KEY(source_id,season)
 );
+CREATE TABLE IF NOT EXISTS premium_sources (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, source_chat_id INTEGER UNIQUE NOT NULL,
+ destination_chat TEXT NOT NULL DEFAULT '@YC_Premium', ddbypass_chat_id INTEGER NOT NULL,
+ catalog_title TEXT NOT NULL DEFAULT '💞💞Exclusive Stuff💞💞',
+ status TEXT NOT NULL DEFAULT 'live', last_source_message_id INTEGER DEFAULT 0,
+ created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS premium_jobs (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, source_id INTEGER NOT NULL REFERENCES premium_sources(id) ON DELETE CASCADE,
+ source_message_id INTEGER NOT NULL, media_group_id TEXT, source_link TEXT,
+ status TEXT NOT NULL DEFAULT 'pending', content_bot TEXT, file_link TEXT, nation_link TEXT,
+ video_count INTEGER DEFAULT 0, destination_message_id INTEGER, catalog_added INTEGER DEFAULT 0,
+ error_message TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+ UNIQUE(source_id,source_message_id)
+);
+INSERT OR IGNORE INTO premium_sources(source_chat_id,destination_chat,ddbypass_chat_id,catalog_title)
+VALUES(-1002492186310,'@YC_Premium',-1004431233893,'💞💞Exclusive Stuff💞💞');
 INSERT OR IGNORE INTO settings(key,value) VALUES
  ('limits_enabled','false'),('delay_between_actions','0.0'),('delay_between_movies','0.0'),
  ('max_channels_per_day','0'),('desired_qualities','480p,720p,1080p,2160p,4K'),

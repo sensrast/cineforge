@@ -10,6 +10,7 @@ from utils.github_store import persist_state
 from utils.modern_admin import (
  grant_control_bot_rights,wait_modern_batch_link as _wait_modern_batch_link,
  generate_modern_provider_link as _generate_modern_provider_link,
+ resolve_modern_source_post as _resolve_modern_source_post,
 )
 from utils.safe_dialogs import iter_dialogs
 log=logging.getLogger(__name__)
@@ -97,6 +98,16 @@ async def generate_modern_provider_link(ctx:PipelineContext,bot_username:str,aft
   try:
    await ctx.client.stop()
    return await _generate_modern_provider_link(ctx.cfg,bot_username,after_id,timeout)
+  finally:
+   try:await ctx.client.start()
+   finally:_CLIENT_READY.set()
+
+async def resolve_modern_source_post(ctx:PipelineContext,chat_id:int,message_id:int)->dict|None:
+ async with _PROMOTION_LOCK:
+  _CLIENT_READY.clear()
+  try:
+   await ctx.client.stop()
+   return await _resolve_modern_source_post(ctx.cfg,chat_id,message_id)
   finally:
    try:await ctx.client.start()
    finally:_CLIENT_READY.set()

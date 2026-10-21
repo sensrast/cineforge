@@ -150,6 +150,29 @@ async def run(ctx: PipelineContext, qid: int, movie: str, invite: str, source_me
     await ctx.db.patch_state(qid, catalog_added=1)
     return True
 
+async def run_premium_catalog(ctx:PipelineContext,title:str,channel_ref:str,source_chat_id:int,source_message_id:int,video_count:int)->bool:
+    """Publish the dedicated Adults Nation entry for one premium source post."""
+    chat=ctx.cfg.catalog_bot;qid=None
+    await ctx.speed.call(lambda:ctx.client.send_message(chat,'/admin'),qid)
+    add_patterns=[r'add.*title',r'new.*title',r'add_title',r'➕.*(?:title|anime|movie)']
+    panel=await _wait_visible_button(ctx,add_patterns)
+    await _click_and_wait(ctx,qid,panel,add_patterns)
+    await _send_and_wait(ctx,qid,title)
+    before=await _snapshot(ctx)
+    await ctx.client.copy_message(chat,source_chat_id,source_message_id)
+    message=await _wait_changed(ctx,before)
+    if _message_has_button(message,[r'skip',r'⏩']):message=await _click_and_wait(ctx,qid,message,[r'skip',r'⏩'])
+    message=await _send_and_wait(ctx,qid,channel_ref)
+    message=await _click_and_wait(ctx,qid,message,[r'adults?\s*nation',r'adult'])
+    genre_panel=await _wait_visible_button(ctx,[r'18\s*\+',r'adult'])
+    message=await _click_and_wait(ctx,qid,genre_panel,[r'18\s*\+',r'adult'])
+    # Some versions expose genre as a multi-select panel; finish it when shown.
+    if _message_has_button(message,[r'(?:✅\s*)?done',r'continue']):
+        message=await _click_and_wait(ctx,qid,message,[r'(?:✅\s*)?done',r'continue'])
+    message=await _send_and_wait(ctx,qid,str(int(video_count)))
+    await _click_and_wait(ctx,qid,message,[r'publish',r'submit'])
+    return True
+
 async def run_mirror_anime(ctx: PipelineContext, title: str, invite: str, total_episodes: int) -> bool:
     """Submit one completed mirrored anime using its all-season episode total."""
     chat = ctx.cfg.catalog_bot

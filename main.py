@@ -20,6 +20,7 @@ from pipeline.context import PipelineContext
 from pipeline.orchestrator import Orchestrator
 from pipeline.stages.stage_5_promote import register as register_promote, stop_watchers as stop_promotion_watchers
 from pipeline.source_mirror import register as register_mirrors, stop as stop_mirrors
+from pipeline.premium_source import register as register_premium_sources, stop as stop_premium_sources
 from pipeline.channel_folder import ensure_created_channels_folder
 from pipeline.promotion import upgrade_promotion_template
 from control.bot import build_control_bot
@@ -73,6 +74,7 @@ class UserbotRuntime:
                 register_promote(context)
                 await ensure_created_channels_folder(context,channel_ids)
                 await register_mirrors(context)
+                await register_premium_sources(context)
                 worker = Orchestrator(context)
                 task = asyncio.create_task(worker.run_forever(), name="pipeline-worker")
                 self.client, self.worker, self.task = client, worker, task
@@ -91,6 +93,7 @@ class UserbotRuntime:
         async with self.lock:
             if self.worker: self.worker.stop_event.set()
             await stop_mirrors()
+            await stop_premium_sources()
             await stop_promotion_watchers()
             if self.task:
                 try: await asyncio.wait_for(self.task, timeout=30)
@@ -126,6 +129,8 @@ async def restore_render_state(queries: Queries) -> bool:
         await restore_rows("mirror_pending",state.get("mirror_pending",[]))
         await restore_rows("mirror_slots",state.get("mirror_slots",[]))
         await restore_rows("mirror_season_outputs",state.get("mirror_outputs",[]))
+        await restore_rows("premium_sources",state.get("premium_sources",[]))
+        await restore_rows("premium_jobs",state.get("premium_jobs",[]))
         for item in state.get("channels", []):
             await queries.db.execute(
                 "INSERT OR IGNORE INTO created_channels(movie_name,content_type,channel_id,invite_link,batch_link,shortened_link,owner_admin_confirmed) VALUES(?,?,?,?,?,?,?)",

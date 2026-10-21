@@ -73,6 +73,26 @@ async def generate_modern_provider_link(cfg,bot_username:str,after_id:int,timeou
   raise TimeoutError(f'@{bot_username} did not return a generated URL after the click')
  finally:await client.disconnect()
 
+async def resolve_modern_source_post(cfg,chat_id:int,message_id:int)->dict|None:
+ """Read rich-message captions/album anchors hidden from Layer-158."""
+ client=TelegramClient(_session(cfg.session_string),cfg.api_id,cfg.api_hash,receive_updates=False)
+ try:
+  await client.connect();entity=None
+  async for dialog in client.iter_dialogs():
+   if int(dialog.id)==int(chat_id):entity=dialog.input_entity;break
+  if entity is None:return None
+  target=await client.get_messages(entity,ids=int(message_id))
+  if not target:return None
+  messages=[target]
+  if target.grouped_id:
+   nearby=await client.get_messages(entity,limit=30,max_id=int(message_id)+15,min_id=max(0,int(message_id)-15))
+   messages=[m for m in nearby if m.grouped_id==target.grouped_id]
+  for message in messages:
+   payload=repr(message.to_dict());match=_BATCH_LINK_RE.search(payload)
+   if match:return {'message_id':message.id,'grouped_id':str(message.grouped_id or ''),'link':match.group(0)}
+  return None
+ finally:await client.disconnect()
+
 async def grant_control_bot_rights(cfg,channel_ids:list[int],bot_username:str,owner_id:int|None=None)->dict[int,bool]:
  """Grant the control bot, and any joined owner, all current rights while Pyrogram is offline."""
  results={int(cid):False for cid in channel_ids}
