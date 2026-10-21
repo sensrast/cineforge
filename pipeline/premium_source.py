@@ -9,6 +9,7 @@ from pipeline.stages.stage_5_promote import generate_modern_provider_link,resolv
 from pipeline.stages.stage_10_catalog import run_premium_catalog
 from utils.github_store import persist_state
 from utils.notifications import notify_control_bot
+from utils.safe_dialogs import iter_dialogs
 log=logging.getLogger(__name__)
 URL_RE=re.compile(r'https?://[^\s<>]+',re.I)
 _TASKS:set[asyncio.Task]=set();_REGISTERED=False
@@ -147,6 +148,17 @@ async def _queue_message(ctx,source_row,message):
 async def register(ctx:PipelineContext):
  global _REGISTERED
  rows=await ctx.db.db.fetchall("SELECT * FROM premium_sources WHERE status='live'")
+ # Older private source channels may sit beyond the first 500 dialogs. Hydrate
+ # their access hashes explicitly before any numeric-ID history request.
+ unresolved={int(row['source_chat_id']) for row in rows}
+ for chat_id in list(unresolved):
+  try:await ctx.client.resolve_peer(chat_id);unresolved.discard(chat_id)
+  except Exception:pass
+ if unresolved:
+  async for dialog in iter_dialogs(ctx.client,limit=2000):
+   unresolved.discard(int(dialog.chat.id))
+   if not unresolved:break
+ if unresolved:raise RuntimeError('Premium source channel is not present in the user session dialogs: '+','.join(map(str,unresolved)))
  if not _REGISTERED:
   async def handler(client,message):
    row=await ctx.db.db.fetchone("SELECT * FROM premium_sources WHERE source_chat_id=? AND status='live'",(message.chat.id,))
