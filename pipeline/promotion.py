@@ -5,6 +5,7 @@ import asyncio
 import time
 import html
 from pipeline.context import PipelineContext
+from pipeline.stages.common import click_matching
 from utils.notifications import bot_api_request
 from utils.text_parser import format_template
 
@@ -60,6 +61,22 @@ async def _wait_provider_url(ctx,chat,before:dict[int,tuple])->str:
         await asyncio.sleep(.5)
     raise TimeoutError("Link provider did not return a generated URL")
 
+async def _wait_generate_button(ctx,chat,before:dict[int,tuple]):
+    deadline=time.monotonic()+max(60,ctx.cfg.flow_timeout)
+    patterns=(r'generate\s*(?:the\s*)?link',r'create\s*link',r'get\s*link')
+    while time.monotonic()<deadline:
+        async for message in ctx.client.get_chat_history(chat,limit=20):
+            if message.outgoing:continue
+            changed=message.id not in before or before[message.id]!=_fingerprint(message)
+            markup=message.reply_markup
+            if not changed or not markup or not getattr(markup,'inline_keyboard',None):continue
+            for row in markup.inline_keyboard:
+                for button in row:
+                    value=(button.text or '')+' '+str(button.callback_data or '')
+                    if any(re.search(pattern,value,re.I) for pattern in patterns):return message
+        await asyncio.sleep(.5)
+    raise TimeoutError("Link provider did not show the Generate Link button")
+
 async def run(ctx:PipelineContext,qid:int,movie:str,channel_id:int,invite_link:str)->int|None:
     if (await ctx.db.setting("promotion_enabled","false")).lower()!="true":return None
     state=await ctx.db.state(qid)
@@ -87,7 +104,11 @@ async def run(ctx:PipelineContext,qid:int,movie:str,channel_id:int,invite_link:s
             await asyncio.sleep(1)
             before=await _snapshot(ctx.client,provider_chat)
             await ctx.speed.call(lambda:ctx.client.forward_messages(provider_chat,channel_id,temporary_id),qid)
-            generated=await _wait_provider_url(ctx,provider_chat,before)
+            panel=await _wait_generate_button(ctx,provider_chat,before)
+            before_click=await _snapshot(ctx.client,provider_chat)
+            if not await click_matching(panel,[r'generate\s*(?:the\s*)?link',r'create\s*link',r'get\s*link']):
+                raise RuntimeError('Generate Link button disappeared before it could be clicked')
+            generated=await _wait_provider_url(ctx,provider_chat,before_click)
             await ctx.db.patch_state(qid,promotion_link=generated)
 
         caption_template=await ctx.db.setting("promotion_caption",DEFAULT_PROMOTION_CAPTION)
