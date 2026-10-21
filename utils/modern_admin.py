@@ -64,7 +64,9 @@ async def generate_modern_provider_link(cfg,bot_username:str,after_id:int,timeou
     if not clicked and message.buttons:
      for row_index,row in enumerate(message.buttons):
       for column_index,button in enumerate(row):
-       if re.search(r'generate\s*(?:the\s*)?link|create\s*link|get\s*link',button.text or '',re.I):
+       callback=getattr(button,'data',b'') or b''
+       if (callback==b'col:gen' or
+           re.search(r'generate\s*(?:the\s*)?link|create\s*link|get\s*link',button.text or '',re.I)):
         await message.click(row_index,column_index);clicked=True;break
       if clicked:break
      if clicked:break
