@@ -155,7 +155,7 @@ async def _queue_message(ctx,source_row,message):
   links=[modern['link']]
  job_id=await ctx.db.db.execute("INSERT OR IGNORE INTO premium_jobs(source_id,source_message_id,media_group_id,source_link,status) VALUES(?,?,?,?, 'pending')",(source_row['id'],anchor.id,str(anchor.media_group_id or ''),links[0]))
  existing=await ctx.db.db.fetchone('SELECT id,status FROM premium_jobs WHERE source_id=? AND source_message_id=?',(source_row['id'],anchor.id))
- if existing and existing['status']!='completed' and not any(t.get_name()==f"premium-{existing['id']}" for t in _TASKS):
+ if existing and existing['status'] in ('pending','processing') and not any(t.get_name()==f"premium-{existing['id']}" for t in _TASKS):
   await persist_state(ctx.db);_spawn(_process(ctx,int(existing['id'])),f"premium-{existing['id']}")
 
 async def register(ctx:PipelineContext):
