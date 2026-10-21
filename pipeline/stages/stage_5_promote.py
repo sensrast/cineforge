@@ -7,7 +7,10 @@ from pyrogram.types import ChatPrivileges
 from pipeline.context import PipelineContext
 from utils.notifications import notify_control_bot,get_control_bot_identity,bot_api_request
 from utils.github_store import persist_state
-from utils.modern_admin import grant_control_bot_rights,wait_modern_batch_link as _wait_modern_batch_link
+from utils.modern_admin import (
+ grant_control_bot_rights,wait_modern_batch_link as _wait_modern_batch_link,
+ generate_modern_provider_link as _generate_modern_provider_link,
+)
 from utils.safe_dialogs import iter_dialogs
 log=logging.getLogger(__name__)
 
@@ -83,6 +86,17 @@ async def wait_modern_batch_link(ctx:PipelineContext,bot_username:str,after_id:i
   try:
    await ctx.client.stop()
    return await _wait_modern_batch_link(ctx.cfg,bot_username,after_id,timeout)
+  finally:
+   try:await ctx.client.start()
+   finally:_CLIENT_READY.set()
+
+async def generate_modern_provider_link(ctx:PipelineContext,bot_username:str,after_id:int,timeout:int=120)->str:
+ """Pause Layer 158 while Layer 229 clicks a modern provider keyboard."""
+ async with _PROMOTION_LOCK:
+  _CLIENT_READY.clear()
+  try:
+   await ctx.client.stop()
+   return await _generate_modern_provider_link(ctx.cfg,bot_username,after_id,timeout)
   finally:
    try:await ctx.client.start()
    finally:_CLIENT_READY.set()

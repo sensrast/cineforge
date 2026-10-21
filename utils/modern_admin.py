@@ -47,6 +47,32 @@ async def wait_modern_batch_link(cfg,bot_username:str,after_id:int,timeout:int=1
  finally:
   await client.disconnect()
 
+async def generate_modern_provider_link(cfg,bot_username:str,after_id:int,timeout:int=120)->str:
+ """Click a Layer-229 Generate Link button and read the resulting URL."""
+ client=TelegramClient(_session(cfg.session_string),cfg.api_id,cfg.api_hash,receive_updates=False)
+ try:
+  await client.connect()
+  if not await client.is_user_authorized():raise RuntimeError('Layer-229 session is not authorized')
+  entity=await client.get_input_entity('@'+bot_username.lstrip('@'))
+  deadline=time.monotonic()+max(30,int(timeout));clicked=False
+  while time.monotonic()<deadline:
+   messages=await client.get_messages(entity,limit=50,min_id=int(after_id))
+   for message in messages:
+    if clicked and not message.out:
+     link=_modern_message_link(message)
+     if link:return link
+    if not clicked and message.buttons:
+     for row_index,row in enumerate(message.buttons):
+      for column_index,button in enumerate(row):
+       if re.search(r'generate\s*(?:the\s*)?link|create\s*link|get\s*link',button.text or '',re.I):
+        await message.click(row_index,column_index);clicked=True;break
+      if clicked:break
+     if clicked:break
+   await asyncio.sleep(1)
+  if not clicked:raise TimeoutError(f'@{bot_username} did not show Generate Link')
+  raise TimeoutError(f'@{bot_username} did not return a generated URL after the click')
+ finally:await client.disconnect()
+
 async def grant_control_bot_rights(cfg,channel_ids:list[int],bot_username:str,owner_id:int|None=None)->dict[int,bool]:
  """Grant the control bot, and any joined owner, all current rights while Pyrogram is offline."""
  results={int(cid):False for cid in channel_ids}

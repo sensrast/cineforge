@@ -5,7 +5,7 @@ import asyncio
 import time
 import html
 from pipeline.context import PipelineContext
-from pipeline.stages.common import click_matching
+from pipeline.stages.stage_5_promote import generate_modern_provider_link
 from utils.notifications import bot_api_request
 from utils.text_parser import format_template
 
@@ -104,11 +104,11 @@ async def run(ctx:PipelineContext,qid:int,movie:str,channel_id:int,invite_link:s
             await asyncio.sleep(1)
             before=await _snapshot(ctx.client,provider_chat)
             await ctx.speed.call(lambda:ctx.client.forward_messages(provider_chat,channel_id,temporary_id),qid)
-            panel=await _wait_generate_button(ctx,provider_chat,before)
-            before_click=await _snapshot(ctx.client,provider_chat)
-            if not await click_matching(panel,[r'generate\s*(?:the\s*)?link',r'create\s*link',r'get\s*link']):
-                raise RuntimeError('Generate Link button disappeared before it could be clicked')
-            generated=await _wait_provider_url(ctx,provider_chat,before_click)
+            # The provider now renders Generate Link in a Layer-229 keyboard;
+            # Layer-158 Pyrogram exposes it as a blank/unsupported message.
+            generated=await generate_modern_provider_link(
+                ctx,provider,max(before.keys(),default=0),max(120,ctx.cfg.flow_timeout)
+            )
             await ctx.db.patch_state(qid,promotion_link=generated)
 
         caption_template=await ctx.db.setting("promotion_caption",DEFAULT_PROMOTION_CAPTION)
