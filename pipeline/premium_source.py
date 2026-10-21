@@ -32,6 +32,13 @@ def _deep_link(url:str)->tuple[str,str]|None:
  payload=parse_qs(parsed.query).get('start',[''])[0]
  return (bot,payload) if bot and payload else None
 
+async def _hydrate_source(ctx,chat_id:int)->None:
+ try:await ctx.client.resolve_peer(int(chat_id));return
+ except Exception:pass
+ async for dialog in iter_dialogs(ctx.client,limit=2000):
+  if int(dialog.chat.id)==int(chat_id):return
+ raise RuntimeError(f'Private source peer is unavailable after reconnect: {chat_id}')
+
 async def _latest_id(client,chat)->int:
  async for message in client.get_chat_history(chat,limit=1):return message.id
  return 0
@@ -92,11 +99,13 @@ async def _store_videos(ctx,content_bot:str,video_ids:list[int])->str:
 async def _nation_link(ctx,row,file_link:str)->str:
  provider='YC_NATION_BOT';before=await _latest_id(ctx.client,provider)
  await ctx.client.send_message(provider,'/genlink');await asyncio.sleep(1)
+ await _hydrate_source(ctx,int(row['source_chat_id']))
  await ctx.client.copy_message(provider,int(row['source_chat_id']),int(row['source_message_id']),caption=file_link)
  return await generate_modern_provider_link(ctx,provider,before,180)
 
 async def _publish_source_post(ctx,row,nation_link:str)->int:
  source=int(row['source_chat_id']);message_id=int(row['source_message_id']);destination=row['destination_chat']
+ await _hydrate_source(ctx,source)
  message=await ctx.client.get_messages(source,message_id)
  if message.media_group_id:
   copied=await ctx.client.copy_media_group(destination,source,message_id,captions=nation_link)
@@ -138,6 +147,7 @@ async def _queue_message(ctx,source_row,message):
   await asyncio.sleep(2)  # allow a new album to finish before Layer-229 lookup
   modern=await resolve_modern_source_post(ctx,int(source_row['source_chat_id']),int(message.id))
   if not modern:return
+  await _hydrate_source(ctx,int(source_row['source_chat_id']))
   anchor=await ctx.client.get_messages(int(source_row['source_chat_id']),int(modern['message_id']))
   links=[modern['link']]
  job_id=await ctx.db.db.execute("INSERT OR IGNORE INTO premium_jobs(source_id,source_message_id,media_group_id,source_link,status) VALUES(?,?,?,?, 'pending')",(source_row['id'],anchor.id,str(anchor.media_group_id or ''),links[0]))
