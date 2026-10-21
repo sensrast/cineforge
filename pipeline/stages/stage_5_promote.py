@@ -7,12 +7,12 @@ from pyrogram.types import ChatPrivileges
 from pipeline.context import PipelineContext
 from utils.notifications import notify_control_bot,get_control_bot_identity,bot_api_request
 from utils.github_store import persist_state
+from utils.safe_dialogs import iter_dialogs
 from utils.modern_admin import (
  grant_control_bot_rights,wait_modern_batch_link as _wait_modern_batch_link,
  generate_modern_provider_link as _generate_modern_provider_link,
  resolve_modern_source_post as _resolve_modern_source_post,
 )
-from utils.safe_dialogs import iter_dialogs
 log=logging.getLogger(__name__)
 
 OWNER_PRIVILEGES=ChatPrivileges(
@@ -29,6 +29,12 @@ _RECONCILER:asyncio.Task|None=None
 # short Layer-229 rights pass is switching that shared key.
 _PROMOTION_LOCK=asyncio.Lock()
 _CLIENT_READY=asyncio.Event();_CLIENT_READY.set()
+
+async def _restart_and_hydrate(ctx:PipelineContext)->None:
+ await ctx.client.start()
+ # Layer switching resets Pyrogram's in-memory access-hash cache. Rehydrate all
+ # dialogs so older private channels remain addressable by their numeric IDs.
+ async for _dialog in iter_dialogs(ctx.client,limit=2000):pass
 
 async def _grant_modern_botapi_rights(ctx:PipelineContext,qid:int|None,channel_id:int,user_id:int,full:bool=False)->bool:
  payload={
@@ -72,13 +78,8 @@ async def _modernize_control_bot(ctx:PipelineContext,qid:int,channel_id:int,user
    result=await grant_control_bot_rights(ctx.cfg,[channel_id],username,ctx.cfg.owner_id)
    return bool(result.get(channel_id))
   finally:
-   try:
-    await ctx.client.start()
-    # Restarting an in-memory Pyrogram client can leave numeric peers uncached.
-    async for _dialog in iter_dialogs(ctx.client,limit=500):
-     pass
-   finally:
-    _CLIENT_READY.set()
+   try:await _restart_and_hydrate(ctx)
+   finally:_CLIENT_READY.set()
 
 async def wait_modern_batch_link(ctx:PipelineContext,bot_username:str,after_id:int,timeout:int=1200)->str:
  """Pause Layer-158 safely while Layer 229 reads a checklist batch result."""
@@ -88,7 +89,7 @@ async def wait_modern_batch_link(ctx:PipelineContext,bot_username:str,after_id:i
    await ctx.client.stop()
    return await _wait_modern_batch_link(ctx.cfg,bot_username,after_id,timeout)
   finally:
-   try:await ctx.client.start()
+   try:await _restart_and_hydrate(ctx)
    finally:_CLIENT_READY.set()
 
 async def generate_modern_provider_link(ctx:PipelineContext,bot_username:str,after_id:int,timeout:int=120)->str:
@@ -99,7 +100,7 @@ async def generate_modern_provider_link(ctx:PipelineContext,bot_username:str,aft
    await ctx.client.stop()
    return await _generate_modern_provider_link(ctx.cfg,bot_username,after_id,timeout)
   finally:
-   try:await ctx.client.start()
+   try:await _restart_and_hydrate(ctx)
    finally:_CLIENT_READY.set()
 
 async def resolve_modern_source_post(ctx:PipelineContext,chat_id:int,message_id:int)->dict|None:
@@ -109,7 +110,7 @@ async def resolve_modern_source_post(ctx:PipelineContext,chat_id:int,message_id:
    await ctx.client.stop()
    return await _resolve_modern_source_post(ctx.cfg,chat_id,message_id)
   finally:
-   try:await ctx.client.start()
+   try:await _restart_and_hydrate(ctx)
    finally:_CLIENT_READY.set()
 
 async def _find_owner(ctx:PipelineContext,channel_id:int):
