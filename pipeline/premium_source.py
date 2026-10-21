@@ -93,7 +93,11 @@ async def _request_content(ctx,row,source_link:str)->tuple[str,list[int]]:
 async def _store_videos(ctx,content_bot:str,video_ids:list[int])->str:
  provider='Premium_files_YC_bot';before=await _latest_id(ctx.client,provider)
  await ctx.client.send_message(provider,'/shortener');await asyncio.sleep(1)
- for message_id in video_ids:await ctx.client.forward_messages(provider,content_bot,message_id)
+ for message_id in video_ids:
+  try:await ctx.client.forward_messages(provider,content_bot,message_id)
+  except Exception as exc:
+   if 'CHAT_FORWARDS_RESTRICTED' not in str(exc):raise
+   await ctx.client.copy_message(provider,content_bot,message_id)
  return await generate_modern_provider_link(ctx,provider,before,180)
 
 async def _nation_link(ctx,row,file_link:str)->str:
@@ -136,7 +140,6 @@ async def _process(ctx,job_id:int):
   except Exception:pass
 
 async def _queue_message(ctx,source_row,message):
- if not (message.photo or message.video):return
  links=[url for url in _urls(message) if _deep_link(url)];anchor=message
  if message.media_group_id:
   try:
@@ -179,7 +182,7 @@ async def register(ctx:PipelineContext):
   for job in pending:_spawn(_process(ctx,int(job['id'])),f"premium-{job['id']}")
   if not pending and int(row['last_source_message_id'] or 0)==0:
    async for message in ctx.client.get_chat_history(int(row['source_chat_id']),limit=100):
-    if message.photo or message.video:await _queue_message(ctx,row,message);break
+    await _queue_message(ctx,row,message);break
 
 async def stop():
  for task in list(_TASKS):task.cancel()
