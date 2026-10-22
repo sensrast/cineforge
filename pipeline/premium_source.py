@@ -55,13 +55,15 @@ async def _activate_url(ctx,url:str):
 
 async def _bypass(ctx,row,shortlink:str)->str:
  chat=int(row['ddbypass_chat_id']);before=await _latest_id(ctx.client,chat)
- await ctx.client.send_message(chat,shortlink)
+ sent=await ctx.client.send_message(chat,shortlink)
  deadline=time.monotonic()+300
  while time.monotonic()<deadline:
-  async for message in ctx.client.get_chat_history(chat,limit=30):
+  async for message in ctx.client.get_chat_history(chat,limit=50):
    if message.id<=before or message.outgoing:continue
+   reply_id=getattr(message,'reply_to_message_id',None)
+   if int(reply_id or 0)!=int(sent.id):continue
    for url in _urls(message):
-    if url!=shortlink:return url
+    if url.rstrip('/')!=shortlink.rstrip('/'):return url
   await asyncio.sleep(5)
  raise TimeoutError('DDBypass did not return a destination URL within 5 minutes')
 
