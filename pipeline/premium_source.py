@@ -82,8 +82,11 @@ async def _request_content(ctx,row,source_link:str)->tuple[str,list[int]]:
     button_text=' '.join(button.text or '' for r in (message.reply_markup.inline_keyboard if message.reply_markup else []) for button in r).lower()
     body=(message.text or message.caption or '').lower()
     token_expired='token' in body and ('expired' in body or 'invalid' in body)
-    if urls and ('refresh' in button_text or 'token' in button_text or token_expired):
-     refresh=next((url for url in urls if 't.me/' not in url.lower()),urls[0])
+    external=next((url for url in urls if 't.me/' not in url.lower()),None)
+    # Access bots often render “token expired” and “Click Here” in Unicode
+    # small-cap glyphs, so ASCII keyword checks alone cannot identify them.
+    if external and ('refresh' in button_text or 'token' in button_text or token_expired or not videos):
+     refresh=external
    if videos and last_video and time.monotonic()-last_video>=8:return bot,sorted(videos)
    if refresh:break
    await asyncio.sleep(2)
