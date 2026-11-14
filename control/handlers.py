@@ -8,7 +8,8 @@ from control.keyboards import (
     SETTING_DEFS, CATEGORIES, display_value, home_keyboard, settings_root_keyboard,
     category_keyboard, field_keyboard, input_cancel_keyboard, confirmation_keyboard,
     back_home_keyboard, status_keyboard, content_type_keyboard,manual_upload_keyboard,
-    mirror_panel_keyboard,mirror_confirm_keyboard,
+    mirror_panel_keyboard,mirror_confirm_keyboard,ingest_keyboard,operations_keyboard,
+    premium_sources_keyboard,
 )
 from pipeline.source_mirror import create_source,save_season_sticker,save_end_sticker,missing_seasons
 from control.manual_upload import detect_quality,detect_episode,assign_qualities,summary
@@ -80,8 +81,23 @@ class ControlHandlers:
         for key in ("input_mode", "setting_key"):
             context.user_data.pop(key, None)
 
+    async def _home_text(self) -> str:
+        rows=await self.db.queue_list();paused=await self.db.setting("pipeline_paused","false")
+        failed=sum(1 for row in rows if row['status']=='failed')
+        active=sum(1 for row in rows if row['status'] not in {'failed','cancelled','completed'})
+        pipeline="Paused" if paused=='true' else "Running"
+        userbot="Online" if self.runtime.running else "Login required"
+        alert=f"  •  ⚠️ {failed} failed" if failed else ""
+        state_icon="⏸" if paused=='true' else "🟢" if self.runtime.running else "🟠"
+        return (
+            "🎬 CINEFORGE\n"
+            f"{state_icon} Pipeline: {pipeline}  •  Userbot: {userbot}\n"
+            f"📋 Active jobs: {active}{alert}\n\n"
+            "What would you like to do?"
+        )
+
     async def _home(self, query) -> None:
-        await self._edit(query, "🎬 CineForge Admin Panel\n\nChoose an option below. All controls are restricted to the configured owner account.", home_keyboard(self.runtime.running))
+        await self._edit(query,await self._home_text(),home_keyboard(self.runtime.running))
 
     async def _settings_root(self, query=None, message=None) -> None:
         values = await self._values()
@@ -123,10 +139,7 @@ class ControlHandlers:
 
     async def start(self, update, context):
         context.user_data.clear()
-        await update.message.reply_text(
-            "🎬 CineForge Admin Panel\n\nUse the buttons below to log in, configure the complete pipeline, and monitor jobs.",
-            reply_markup=home_keyboard(self.runtime.running),
-        )
+        await update.message.reply_text(await self._home_text(),reply_markup=home_keyboard(self.runtime.running))
 
     async def add(self, update, context):
         name = " ".join(context.args).strip()
@@ -315,11 +328,46 @@ class ControlHandlers:
             setattr(self.cfg, attr, converter(value))
         await persist_state(self.db)
 
+    async def operations_text(self) -> tuple[str,bool]:
+        rows=await self.db.queue_list();paused=await self.db.setting("pipeline_paused","false")=='true'
+        counts={key:sum(1 for row in rows if row['status']==key) for key in ('failed','deferred')}
+        active=sum(1 for row in rows if row['status'] not in {'failed','cancelled','completed'})
+        text=(
+            "📊 OPERATIONS\n\n"
+            f"Pipeline       {'⏸ Paused' if paused else '▶️ Running'}\n"
+            f"Userbot       {'✅ Online' if self.runtime.running else '❌ Login required'}\n"
+            f"Active jobs   {active}\n"
+            f"Deferred      {counts['deferred']}\n"
+            f"Failed        {counts['failed']}\n\n"
+            "Open Live Jobs for job-level actions, or Activity Log for technical history."
+        )
+        return text,paused
+
+    async def premium_sources_text(self) -> str:
+        sources=await self.db.db.fetchall("SELECT * FROM premium_sources ORDER BY id")
+        lines=["✨ PREMIUM SOURCES","","Automatic source-channel ingestion and recent results.",""]
+        if not sources:return "\n".join(lines+["No premium sources configured."])
+        for source in sources:
+            jobs=await self.db.db.fetchall("SELECT * FROM premium_jobs WHERE source_id=? ORDER BY id DESC LIMIT 3",(source['id'],))
+            icon={'live':'🟢','paused':'⏸'}.get(source['status'],'⚪️')
+            lines.append(f"{icon} {source['source_chat_id']} — {source['status'].title()}")
+            if not jobs:lines.append("   No jobs yet")
+            for job in jobs:
+                job_icon={'completed':'✅','failed':'❌','processing':'🔄','pending':'⏳'}.get(job['status'],'•')
+                detail=f" · {job['video_count']} video(s)" if int(job['video_count'] or 0) else ""
+                lines.append(f"   {job_icon} Post {job['source_message_id']}: {job['status']}{detail}")
+                if job['status']=='failed' and job['error_message']:
+                    lines.append(f"      {job['error_message'][:110]}")
+            lines.append("")
+        return "\n".join(lines)[:3900]
+
     async def status_text(self) -> str:
         rows = await self.db.queue_list(); today = await self.db.count_today(); paused = await self.db.setting("pipeline_paused", "false")
-        lines = [f'📊 Live Status', f'Pipeline: {"PAUSED" if paused == "true" else "RUNNING"}', f'Userbot: {"CONNECTED" if self.runtime.running else "LOGIN REQUIRED"}', f"Channels today: {today}", f"Active queue: {len(rows)}", ""]
+        lines = ["📋 LIVE JOBS", "", f'{"⏸" if paused == "true" else "▶️"} Pipeline: {"Paused" if paused == "true" else "Running"}', f'Userbot: {"✅ Online" if self.runtime.running else "❌ Login required"}', f"Channels today: {today}  •  Queue: {len(rows)}", ""]
+        icons={'failed':'❌','deferred':'⏳','pending':'🕒','completed':'✅','cancelled':'🛑'}
         for row in rows[:15]:
-            line = f"• #{row['id']} [{row['content_type'].upper()}] {row['movie_name']} — stage {row['current_stage']}/10 ({row['status']})"
+            icon=icons.get(row['status'],'🔄');status=str(row['status']).replace('_',' ').title()
+            line = f"{icon} #{row['id']} · {row['content_type'].title()}\n   {row['movie_name']}\n   Stage {row['current_stage']}/10 · {status}"
             if row['status']=='deferred' and row['next_attempt_at']:
                 line+=f"\n  Automatic retry: {row['next_attempt_at']} UTC"
             if row['status'] in {'failed','deferred'} and row['error_message']:
@@ -415,15 +463,26 @@ class ControlHandlers:
             if data == "nav:home":
                 await self.login.abort(self.owner_id); return await self._home(query)
             if data == "nav:settings": return await self._settings_root(query=query)
+            if data == "nav:ingest":
+                return await self._edit(query,"📥 UPLOADS & SOURCES\n\nChoose a guided upload or an automatic source workflow.",ingest_keyboard())
+            if data == "nav:operations":
+                text,paused=await self.operations_text();return await self._edit(query,text,operations_keyboard(paused))
+            if data == "nav:premium_sources":
+                return await self._edit(query,await self.premium_sources_text(),premium_sources_keyboard())
             if data.startswith("nav:cat:"): return await self._category(query, data.split(":", 2)[2])
             if data == "nav:status":
                 rows = await self.db.queue_list()
                 return await self._edit(query, await self.status_text(), status_keyboard(rows))
             if data == "nav:logs":
-                rows = await self.db.recent_logs(15); text = "📝 Recent Logs\n\n" + ("\n".join(f"[{r['level']}] #{r['queue_id'] or '-'} {r['message']}" for r in rows) or "No logs yet.")
-                return await self._edit(query, text[:3900], back_home_keyboard())
+                rows = await self.db.recent_logs(15); text = "📝 ACTIVITY LOG\n\n" + ("\n".join(f"[{r['level']}] #{r['queue_id'] or '-'} {r['message']}" for r in rows) or "No activity yet.")
+                paused=await self.db.setting("pipeline_paused","false")=='true'
+                return await self._edit(query,text[:3900],operations_keyboard(paused))
             if data == "nav:help":
                 return await self._edit(query, "❓ Help\n\n1. Configure Telegram API credentials.\n2. Press Login Userbot and complete OTP/2FA.\n3. Review integration usernames and links.\n4. Add titles with /add or plain text.\n5. Monitor progress from Live Status.\n\nEvery submenu shows its current saved values.", back_home_keyboard())
+        if data.startswith("ops:"):
+            action=data.split(":",1)[1]
+            await self.db.set_setting("pipeline_paused","true" if action=='pause' else "false");await persist_state(self.db)
+            text,paused=await self.operations_text();return await self._edit(query,text,operations_keyboard(paused))
         if data == "auth:start":
             if not await self.login.credentials_ready():
                 return await self._edit(query, "⚠️ Telegram API ID and API Hash are required first.", back_home_keyboard())

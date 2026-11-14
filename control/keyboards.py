@@ -77,11 +77,32 @@ def display_value(key: str, value: str) -> str:
 
 def home_keyboard(logged_in: bool) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ Userbot Connected" if logged_in else "🔐 Login Userbot", callback_data="auth:status" if logged_in else "auth:start")],
-        [InlineKeyboardButton("🎬 Add Movie", callback_data="addmode:movie"), InlineKeyboardButton("📺 Add Series", callback_data="addmode:series")],
-        [InlineKeyboardButton("📤 Manual Upload", callback_data="manual:start"), InlineKeyboardButton("🔄 Source Mirror", callback_data="mirror:panel")],
-        [InlineKeyboardButton("⚙️ Settings", callback_data="nav:settings"), InlineKeyboardButton("📊 Live Status", callback_data="nav:status")],
-        [InlineKeyboardButton("📝 Recent Logs", callback_data="nav:logs"), InlineKeyboardButton("❓ Help", callback_data="nav:help")],
+        [InlineKeyboardButton("➕ New Movie", callback_data="addmode:movie"), InlineKeyboardButton("➕ New Series", callback_data="addmode:series")],
+        [InlineKeyboardButton("📥 Uploads & Sources", callback_data="nav:ingest")],
+        [InlineKeyboardButton("📊 Operations", callback_data="nav:operations"), InlineKeyboardButton("⚙️ Settings", callback_data="nav:settings")],
+        [InlineKeyboardButton("✅ Userbot Online" if logged_in else "🔐 Connect Userbot", callback_data="auth:status" if logged_in else "auth:start")],
+        [InlineKeyboardButton("❓ Help", callback_data="nav:help")],
+    ])
+
+def ingest_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📤 Manual Upload", callback_data="manual:start")],
+        [InlineKeyboardButton("🔄 Source Mirrors", callback_data="mirror:panel"), InlineKeyboardButton("✨ Premium Sources", callback_data="nav:premium_sources")],
+        [InlineKeyboardButton("⬅️ Home", callback_data="nav:home")],
+    ])
+
+def operations_keyboard(paused: bool = False) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📋 Live Jobs", callback_data="nav:status"), InlineKeyboardButton("📝 Activity Log", callback_data="nav:logs")],
+        [InlineKeyboardButton("▶️ Resume Pipeline" if paused else "⏸ Pause Pipeline", callback_data="ops:resume" if paused else "ops:pause")],
+        [InlineKeyboardButton("🔄 Refresh", callback_data="nav:operations")],
+        [InlineKeyboardButton("⬅️ Home", callback_data="nav:home")],
+    ])
+
+def premium_sources_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔄 Refresh", callback_data="nav:premium_sources")],
+        [InlineKeyboardButton("⬅️ Uploads & Sources", callback_data="nav:ingest")],
     ])
 
 def content_type_keyboard(prefix: str = "type") -> InlineKeyboardMarkup:
@@ -165,7 +186,7 @@ def status_keyboard(rows) -> InlineKeyboardMarkup:
             buttons.append([InlineKeyboardButton(f"🔄 Retry #{row['id']} — {_short(row['movie_name'], 24)}", callback_data=f"job:retry:{row['id']}")])
         elif row['status'] not in {'completed','cancelled'}:
             buttons.append([InlineKeyboardButton(f"🛑 Cancel #{row['id']} — {_short(row['movie_name'], 24)}",callback_data=f"job:cancel:{row['id']}")])
-    buttons += [[InlineKeyboardButton("🔄 Refresh Status", callback_data="nav:status")], [InlineKeyboardButton("⬅️ Back to Home", callback_data="nav:home")]]
+    buttons += [[InlineKeyboardButton("🔄 Refresh Jobs", callback_data="nav:status")], [InlineKeyboardButton("⬅️ Operations", callback_data="nav:operations")]]
     return InlineKeyboardMarkup(buttons)
 
 def back_home_keyboard() -> InlineKeyboardMarkup:
