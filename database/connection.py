@@ -39,7 +39,7 @@ class Database:
             await self.conn.execute("ALTER TABLE mirror_sources ADD COLUMN catalog_added INTEGER DEFAULT 0")
         for column,definition in {
             "connection_mode":"TEXT DEFAULT 'created'","sync_limit_episode":"INTEGER",
-            "initial_batch_link":"TEXT","initial_final_post_id":"INTEGER","initial_update_post_id":"INTEGER",
+            "initial_batch_link":"TEXT","initial_final_post_id":"INTEGER","initial_update_post_id":"INTEGER","initial_provider_link":"TEXT",
         }.items():
             if column not in mirror_columns:
                 await self.conn.execute(f"ALTER TABLE mirror_sources ADD COLUMN {column} {definition}")

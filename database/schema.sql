@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS mirror_sources (
  current_episode INTEGER DEFAULT 0, last_source_message_id INTEGER DEFAULT 0, end_sticker_file_id TEXT,
  current_end_sticker_message_id INTEGER, current_end_text_message_id INTEGER,
  catalog_added INTEGER DEFAULT 0, connection_mode TEXT DEFAULT 'created', sync_limit_episode INTEGER,
- initial_batch_link TEXT, initial_final_post_id INTEGER, initial_update_post_id INTEGER,
+ initial_batch_link TEXT, initial_final_post_id INTEGER, initial_update_post_id INTEGER, initial_provider_link TEXT,
  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS mirror_season_stickers (
