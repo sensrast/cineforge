@@ -1,6 +1,7 @@
 """Isolated subscriber-channel mirror: historical import plus future media sync."""
 from __future__ import annotations
 import asyncio,logging,os,re,tempfile,time
+from pyrogram import enums
 from pyrogram.handlers import MessageHandler
 from pipeline.context import PipelineContext
 from control.manual_upload import detect_quality,detect_episode,ORDER
@@ -121,7 +122,7 @@ async def _process_connected_destination(ctx:PipelineContext,source_id:int)->Non
     if not item['quality']:item['quality']=labels[min(index,len(labels)-1)]
    for item in sorted(source_ranked,key=lambda value:value['message'].id):
     caption=caption_template.format(title='Naruto',season=item['season'],episode=item['episode'],quality=item['quality'],overall_episode=target,total_episodes=total)
-    copied=await ctx.client.copy_message(channel,int(row['source_chat_id']),item['message'].id,caption=caption)
+    copied=await ctx.client.copy_message(channel,int(row['source_chat_id']),item['message'].id,caption=caption,parse_mode=enums.ParseMode.HTML)
     candidates.append({**item,'message':copied})
   if not candidates:raise RuntimeError(f'Episode {target} was found in neither the destination nor the source channel')
   ranked=sorted(candidates,key=lambda item:(item['size'],item['message'].id));labels=['480p','720p','1080p','2160p']
@@ -129,7 +130,7 @@ async def _process_connected_destination(ctx:PipelineContext,source_id:int)->Non
    if not item['quality']:item['quality']=labels[min(index,len(labels)-1)]
   for item in sorted(ranked,key=lambda value:value['message'].id):
    caption=caption_template.format(title='Naruto',season=item['season'],episode=item['episode'],quality=item['quality'],overall_episode=target,total_episodes=total)
-   try:await ctx.client.edit_message_caption(channel,item['message'].id,caption=caption)
+   try:await ctx.client.edit_message_caption(channel,item['message'].id,caption=caption,parse_mode=enums.ParseMode.HTML)
    except Exception as exc:
     if 'message_not_modified' not in str(exc).lower():raise
   ordered=sorted(ranked,key=lambda item:item['message'].id);batch_link=row['initial_batch_link'] or ''
@@ -145,9 +146,10 @@ async def _process_connected_destination(ctx:PipelineContext,source_id:int)->Non
   final_text=final_template.format(title='Naruto Shippuden',season=season,episode=episode,overall_episode=target,total_episodes=total)
   final_id=int(row['initial_final_post_id'] or 0)
   if not final_id:
-   result=await bot_api_request(ctx.cfg.control_token,'sendMessage',{'chat_id':channel,'text':final_text,'parse_mode':'Markdown','disable_web_page_preview':True,'reply_markup':{'inline_keyboard':[[{'text':'❐ 𝗪𝗮𝘁𝗰𝗵/𝗗𝗼𝘄𝗻𝗹𝗼𝗮𝗱 ❐','url':batch_link}]]}})
+   result=await bot_api_request(ctx.cfg.control_token,'sendMessage',{'chat_id':channel,'text':final_text,'parse_mode':'HTML','disable_web_page_preview':True,'reply_markup':{'inline_keyboard':[[{'text':'❐ 𝗪𝗮𝘁𝗰𝗵/𝗗𝗼𝘄𝗻𝗹𝗼𝗮𝗱 ❐','url':batch_link}]]}})
    final_id=int(result['message_id']);await ctx.db.db.execute('UPDATE mirror_sources SET initial_final_post_id=?,updated_at=CURRENT_TIMESTAMP WHERE id=?',(final_id,source_id));await persist_state(ctx.db)
   update_id=int(row['initial_update_post_id'] or 0)
+  if (await ctx.db.setting('mirror_updates_enabled','false')).lower()!='true':update_id=-1
   if not update_id:
    image=await ctx.db.setting('mirror_updates_image','');updates=await ctx.db.setting('mirror_updates_channel','-1002072936982')
    if not image:raise RuntimeError('Anime Promotion Image is not configured in Settings → Source Mirror Profiles')

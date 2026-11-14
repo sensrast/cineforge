@@ -103,9 +103,9 @@ INSERT OR IGNORE INTO settings(key,value) VALUES
  ('promotion_button_text','Click here to start and get Movie'),
  ('promotion_updates_sticker',''),('created_channels_folder_enabled','true'),
  ('created_channels_folder_name','🎬 Movie Channels'),
- ('mirror_file_caption_template','‣ Naruto (S - {season})\n╭────────────────────\n┣Quality: {quality}\n┣Episode: {episode}\n┣Audio: Hindi #O𝖿𝖿𝗂𝖼𝗂𝖺𝗅\n╰────────────────────\n‣ Powered By: [@india\_Crunchyroll](https://t.me/india_Crunchyroll)\n[@YCAnime](https://t.me/YCAnime)'),
- ('mirror_final_post_template','✦ Naruto Shippuden ✦\n╔━━━━━━━━━━━━━━━━━━━━━╗\n⌲ season : {season}\n❍ 𝗘𝗽𝗶𝘀𝗼𝗱𝗲: {episode:02d} [ {overall_episode} ]\n〄 𝗔𝘂𝗱𝗶𝗼: Hindi\n◎ 𝗧𝗼𝘁𝗮𝗹 episodes: {total_episodes}\n♡ 𝗣𝗼𝘄𝗲𝗿𝗲𝗱 𝗯𝘆: [@YCAnime](https://t.me/YCAnime) , [@India\_crunchyroll](https://t.me/India_crunchyroll)\n╚━━━━━━━━━━━━━━━━━━━━━╝'),
- ('mirror_updates_channel','-1002072936982'),('mirror_updates_image',''),
+ ('mirror_file_caption_template','‣ Naruto (S - {season})\n╭────────────────────\n┣Quality: {quality}\n┣Episode: {episode}\n┣Audio: Hindi #O𝖿𝖿𝗂𝖼𝗂𝖺𝗅\n╰────────────────────\n‣ Powered By: <a href="https://t.me/india_Crunchyroll">@india_Crunchyroll</a>\n<a href="https://t.me/YCAnime">@YCAnime</a>'),
+ ('mirror_final_post_template','✦ Naruto Shippuden ✦\n╔━━━━━━━━━━━━━━━━━━━━━╗\n⌲ season : {season}\n❍ 𝗘𝗽𝗶𝘀𝗼𝗱𝗲: {episode:02d} [{overall_episode}]\n〄 𝗔𝘂𝗱𝗶𝗼: Hindi\n◎ 𝗧𝗼𝘁𝗮𝗹 episodes: {total_episodes}\n♡ 𝗣𝗼𝘄𝗲𝗿𝗲𝗱 𝗯𝘆: <a href="https://t.me/YCAnime">@YCAnime</a> , <a href="https://t.me/India_crunchyroll">@India_crunchyroll</a>\n╚━━━━━━━━━━━━━━━━━━━━━╝'),
+ ('mirror_updates_enabled','false'),('mirror_updates_channel','-1002072936982'),('mirror_updates_image',''),
  ('mirror_updates_post_template','🍎 {title}\n\n🥳 season {season} episode {episode} Added ....!🌟'),
  ('mirror_initial_episode','373'),('mirror_total_episodes','500'),
  ('auto_catalog','true'),('pipeline_paused','false');
