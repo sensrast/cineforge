@@ -4,7 +4,7 @@ import asyncio,logging,os,re,tempfile,time
 from pyrogram.handlers import MessageHandler
 from pipeline.context import PipelineContext
 from control.manual_upload import detect_quality,detect_episode,ORDER
-from pipeline.stages.stage_5_promote import add_control_bot_admin,add_filestore_admin,wait_modern_batch_link as wait_modern_filestore_link
+from pipeline.stages.stage_5_promote import add_control_bot_admin,add_filestore_admin,wait_modern_batch_link as wait_modern_filestore_link,generate_modern_provider_link
 from pipeline.stages.stage_10_catalog import run_mirror_anime
 from pipeline.stages.common import ModernBatchResponseRequired,latest_id,wait_for_batch_link
 from utils.notifications import send_channel_sticker,notify_control_bot,bot_api_request
@@ -69,6 +69,79 @@ async def create_source(ctx:PipelineContext,source_chat_id:int,source_ref:str,ti
  await persist_state(ctx.db)
  await notify_control_bot(ctx.cfg.control_token,ctx.cfg.owner_id,f'✅ Mirror destination created for {title}:\n{invite}')
  return source_id,seasons,invite
+
+def _connected_episode(text:str,title:str)->tuple[int|None,int|None,int|None]:
+ season,episode=detect_episode(text or '')
+ if season is None:
+  match=re.search(r'\bS(?:eason)?\s*[-: ]*\s*(\d{1,2})\b',text or '',re.I)
+  if match:season=int(match.group(1))
+ if episode is None:
+  match=re.search(r'\bEpisode\s*[-: ]*\s*(\d{1,3})\b',text or '',re.I)
+  if match:episode=int(match.group(1))
+ overall=None
+ for pattern in (r'\[\s*(\d{3})\s*\]',r'\b(?:episode|ep)\s*[:#-]?\s*E?(\d{3})\b',r'\bE(\d{3})\b'):
+  match=re.search(pattern,text or '',re.I)
+  if match:overall=int(match.group(1));break
+ if overall is None and episode and episode>=100:overall=episode
+ # Naruto Shippuden Season 18 starts at overall episode 373. This lets the
+ # connected-channel scanner understand both E373 and S18E01 naming styles.
+ if overall is None and 'naruto' in (title or '').lower() and season==18 and episode:
+  overall=372+episode
+ if overall and episode and episode>=100 and 'naruto' in (title or '').lower() and overall>=373:
+  season,episode=18,overall-372
+ return season,episode,overall
+
+async def _process_connected_destination(ctx:PipelineContext,source_id:int)->None:
+ try:
+  row=await ctx.db.db.fetchone('SELECT * FROM mirror_sources WHERE id=?',(source_id,));channel=int(row['destination_chat_id'])
+  target=int(row['sync_limit_episode'] or 0);caption_template=await ctx.db.setting('mirror_file_caption_template',CAPTION)
+  final_template=await ctx.db.setting('mirror_final_post_template','');total=int(await ctx.db.setting('mirror_total_episodes','500'))
+  candidates=[]
+  async for message in ctx.client.get_chat_history(channel):
+   media=_media(message)
+   if not media:continue
+   text=(message.caption or '')+' '+_file_name(message);season,episode,overall=_connected_episode(text,row['source_title'])
+   if overall==target:candidates.append({'message':message,'season':season or 18,'episode':episode or 1,'quality':detect_quality(text),'size':int(getattr(media,'file_size',0) or 0)})
+  if not candidates:raise RuntimeError(f'No existing destination files were recognized as overall episode {target}')
+  ranked=sorted(candidates,key=lambda item:(item['size'],item['message'].id));labels=['480p','720p','1080p','2160p']
+  for index,item in enumerate(ranked):
+   if not item['quality']:item['quality']=labels[min(index,len(labels)-1)]
+  for item in sorted(ranked,key=lambda value:value['message'].id):
+   caption=caption_template.format(title='Naruto',season=item['season'],episode=item['episode'],quality=item['quality'],overall_episode=target,total_episodes=total)
+   await ctx.client.edit_message_caption(channel,item['message'].id,caption=caption)
+  ordered=sorted(ranked,key=lambda item:item['message'].id);before=await latest_id(ctx.client,ANIME_FILESTORE_BOT)
+  await ctx.client.send_message(ANIME_FILESTORE_BOT,'/batch');await asyncio.sleep(2)
+  await ctx.client.forward_messages(ANIME_FILESTORE_BOT,channel,ordered[0]['message'].id);await asyncio.sleep(2)
+  await ctx.client.forward_messages(ANIME_FILESTORE_BOT,channel,ordered[-1]['message'].id)
+  try:batch_link=await wait_for_batch_link(ctx.client,ANIME_FILESTORE_BOT,before,ctx.cfg.flow_timeout,1200)
+  except ModernBatchResponseRequired:batch_link=await wait_modern_filestore_link(ctx,ANIME_FILESTORE_BOT,before,1200)
+  season=int(ordered[0]['season']);episode=int(ordered[0]['episode'])
+  final_text=final_template.format(title='Naruto Shippuden',season=season,episode=episode,overall_episode=target,total_episodes=total)
+  result=await bot_api_request(ctx.cfg.control_token,'sendMessage',{'chat_id':channel,'text':final_text,'parse_mode':'Markdown','disable_web_page_preview':True,'reply_markup':{'inline_keyboard':[[{'text':'❐ 𝗪𝗮𝘁𝗰𝗵/𝗗𝗼𝘄𝗻𝗹𝗼𝗮𝗱 ❐','url':batch_link}]]}})
+  final_id=int(result['message_id']);update_id=None
+  image=await ctx.db.setting('mirror_updates_image','');updates=await ctx.db.setting('mirror_updates_channel','-1002072936982')
+  if not image:raise RuntimeError('Anime Promotion Image is not configured in Settings → Source Mirror Profiles')
+  provider=(await ctx.db.setting('promotion_link_provider','Yclinkproviderbot')).lstrip('@');temporary=await bot_api_request(ctx.cfg.control_token,'sendPhoto',{'chat_id':channel,'photo':image,'caption':f'Channel link 🔗 👇👇\n\n{row["invite_link"]}\n{row["invite_link"]}'})
+  temporary_id=int(temporary['message_id']);await ctx.client.send_message('@'+provider,'/genlink');await asyncio.sleep(1);provider_before=await latest_id(ctx.client,'@'+provider)
+  await ctx.client.forward_messages('@'+provider,channel,temporary_id)
+  generated=await generate_modern_provider_link(ctx,provider,provider_before,max(120,ctx.cfg.flow_timeout))
+  update=await bot_api_request(ctx.cfg.control_token,'sendPhoto',{'chat_id':updates,'photo':image,'caption':final_text,'parse_mode':'Markdown','reply_markup':{'inline_keyboard':[[{'text':'❐ 𝗪𝗮𝘁𝗰𝗵/𝗗𝗼𝘄𝗻𝗹𝗼𝗮𝗱 ❐','url':generated}]]}});update_id=int(update['message_id'])
+  try:await bot_api_request(ctx.cfg.control_token,'deleteMessage',{'chat_id':channel,'message_id':temporary_id})
+  except Exception:pass
+  await ctx.db.db.execute("UPDATE mirror_sources SET status='paused',current_season=?,current_episode=?,initial_batch_link=?,initial_final_post_id=?,initial_update_post_id=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",(season,episode,batch_link,final_id,update_id,source_id));await persist_state(ctx.db)
+  await notify_control_bot(ctx.cfg.control_token,ctx.cfg.owner_id,f'✅ Connected destination processed episode {target}. Future source episodes remain paused until your confirmation.')
+ except Exception as exc:
+  log.exception('Connected destination setup failed');await ctx.db.db.execute("UPDATE mirror_sources SET status='failed',updated_at=CURRENT_TIMESTAMP WHERE id=?",(source_id,));await persist_state(ctx.db);await notify_control_bot(ctx.cfg.control_token,ctx.cfg.owner_id,f'❌ Connected destination setup failed: {exc}')
+
+async def connect_existing_source(ctx:PipelineContext,source_chat_id:int,source_ref:str,title:str,destination_chat_id:int)->tuple[int,str]:
+ existing=await ctx.db.db.fetchone('SELECT id FROM mirror_sources WHERE source_chat_id=?',(source_chat_id,))
+ if existing:raise RuntimeError('This source is already connected. Remove its old Source Mirror profile first.')
+ destination=await ctx.client.get_chat(destination_chat_id);invite=await ctx.client.export_chat_invite_link(destination_chat_id)
+ target=int(await ctx.db.setting('mirror_initial_episode','373'))
+ source_id=await ctx.db.db.execute("INSERT INTO mirror_sources(source_chat_id,source_ref,source_title,destination_chat_id,invite_link,status,connection_mode,sync_limit_episode) VALUES(?,?,?,?,?,'processing_existing','existing',?)",(source_chat_id,source_ref,title,destination_chat_id,invite,target))
+ await add_control_bot_admin(ctx,None,destination_chat_id);await add_filestore_admin(ctx,None,destination_chat_id,ANIME_FILESTORE_BOT);await persist_state(ctx.db)
+ _spawn(_process_connected_destination(ctx,source_id),f'mirror-connected-{source_id}')
+ return source_id,invite
 
 async def scan_history(ctx:PipelineContext,source_id:int)->None:
  row=await ctx.db.db.fetchone('SELECT * FROM mirror_sources WHERE id=?',(source_id,));items=[]
@@ -309,10 +382,11 @@ async def register(ctx:PipelineContext):
  if not _REGISTERED:
   async def handler(client,message):await _future_handler(ctx,client,message)
   ctx.client.add_handler(MessageHandler(handler),group=-90);_REGISTERED=True
- rows=await ctx.db.db.fetchall("SELECT id,status FROM mirror_sources WHERE status IN ('restart','syncing','live','awaiting_stickers','awaiting_end_sticker')")
+ rows=await ctx.db.db.fetchall("SELECT id,status FROM mirror_sources WHERE status IN ('restart','syncing','live','awaiting_stickers','awaiting_end_sticker','processing_existing')")
  for row in rows:
   if row['status']=='restart':_spawn(restart_mirror(ctx,int(row['id'])),f"mirror-restart-{row['id']}")
   elif row['status']=='syncing':start_history(ctx,int(row['id']))
+  elif row['status']=='processing_existing':_spawn(_process_connected_destination(ctx,int(row['id'])),f"mirror-connected-{row['id']}")
   pending=await ctx.db.db.fetchall('SELECT DISTINCT season,episode FROM mirror_pending WHERE source_id=?',(row['id'],))
   if row['status']=='live':
    for item in pending:_spawn(_flush_future(ctx,int(row['id']),int(item['season']),int(item['episode'])),f"mirror-flush-{row['id']}-{item['season']}-{item['episode']}")

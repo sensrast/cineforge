@@ -46,6 +46,12 @@ SETTING_DEFS: dict[str, dict[str, Any]] = {
     "promotion_updates_sticker": {"title": "Updates Post Sticker", "category": "catalog", "kind": "sticker", "help": "Sticker sent immediately after every promotional post in the updates channel."},
     "created_channels_folder_enabled": {"title": "Created Channels Folder", "category": "channel", "kind": "bool", "help": "Keep channels created by CineForge inside a dedicated Telegram folder on the userbot account."},
     "created_channels_folder_name": {"title": "Folder Name", "category": "channel", "kind": "text", "help": "Telegram folder name used for channels created by CineForge."},
+    "mirror_file_caption_template": {"title": "Connected-file Caption", "category": "mirrors", "kind": "template", "help": "Caption for files already present in a connected destination. Supports {season}, {episode}, and {quality}."},
+    "mirror_final_post_template": {"title": "Anime Final Post", "category": "mirrors", "kind": "template", "help": "Supports {season}, {episode}, {overall_episode}, and {total_episodes}."},
+    "mirror_updates_channel": {"title": "Anime Updates Channel", "category": "mirrors", "kind": "text", "help": "Numeric channel ID or @username for anime update posts."},
+    "mirror_updates_image": {"title": "Anime Promotion Image", "category": "mirrors", "kind": "photo", "help": "Reusable image for anime link generation and the main updates-channel post."},
+    "mirror_initial_episode": {"title": "Initial Overall Episode", "category": "mirrors", "kind": "int_positive", "help": "Only this overall episode is processed when first connecting an existing destination. The source remains paused afterward."},
+    "mirror_total_episodes": {"title": "Anime Total Episodes", "category": "mirrors", "kind": "int_positive", "help": "Value inserted into {total_episodes} in the final post."},
 }
 
 CATEGORIES = {
@@ -56,6 +62,7 @@ CATEGORIES = {
     "links": ("🔗 Links & Monetization", "AroLinks and tutorial button settings."),
     "speed": ("⚡ Speed, Limits & Timeouts", "Runtime throttling and response timeouts."),
     "catalog": ("🗂 Catalog Defaults", "Automatic catalog submission defaults."),
+    "mirrors": ("🔄 Source Mirror Profiles", "Connected-destination captions, final posts, and anime updates."),
 }
 
 def _short(value: str, limit: int = 22) -> str:
@@ -119,7 +126,18 @@ def mirror_panel_keyboard(rows=()) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(buttons)
 
 def mirror_confirm_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([[InlineKeyboardButton("✅ Confirm and Create Channel",callback_data="mirror:confirm")],[InlineKeyboardButton("✖️ Cancel",callback_data="mirror:cancel")]])
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✨ Create New Destination",callback_data="mirror:create")],
+        [InlineKeyboardButton("🔗 Connect Existing Destination",callback_data="mirror:connect")],
+        [InlineKeyboardButton("✖️ Cancel",callback_data="mirror:cancel")],
+    ])
+
+def mirror_destination_confirm_keyboard(initial_episode: int = 373) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(f"✅ Connect and Process Episode {initial_episode}",callback_data="mirror:connect_confirm")],
+        [InlineKeyboardButton("⬅️ Choose Another Destination",callback_data="mirror:connect")],
+        [InlineKeyboardButton("✖️ Cancel",callback_data="mirror:cancel")],
+    ])
 
 def manual_upload_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([

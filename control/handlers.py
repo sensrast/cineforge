@@ -8,10 +8,10 @@ from control.keyboards import (
     SETTING_DEFS, CATEGORIES, display_value, home_keyboard, settings_root_keyboard,
     category_keyboard, field_keyboard, input_cancel_keyboard, confirmation_keyboard,
     back_home_keyboard, status_keyboard, content_type_keyboard,manual_upload_keyboard,
-    mirror_panel_keyboard,mirror_confirm_keyboard,ingest_keyboard,operations_keyboard,
-    premium_sources_keyboard,
+    mirror_panel_keyboard,mirror_confirm_keyboard,mirror_destination_confirm_keyboard,
+    ingest_keyboard,operations_keyboard,premium_sources_keyboard,
 )
-from pipeline.source_mirror import create_source,save_season_sticker,save_end_sticker,missing_seasons
+from pipeline.source_mirror import create_source,connect_existing_source,save_season_sticker,save_end_sticker,missing_seasons
 from control.manual_upload import detect_quality,detect_episode,assign_qualities,summary
 
 CFG_ATTRS = {
@@ -205,7 +205,7 @@ class ControlHandlers:
 
     async def _mirror_panel(self,query=None,message=None):
         rows=await self.db.db.fetchall('SELECT * FROM mirror_sources ORDER BY id DESC')
-        text='🔄 Source Mirror\n\nConnect a channel where the userbot account is already a subscriber. Historical video/document files will be imported, then future files will sync after a 5-minute quality buffer.'
+        text='🔄 Source Mirror\n\nAdd a source, then either create a new destination or connect an existing channel. Connected destinations are scanned first so already-posted episodes are not duplicated.'
         if query:await self._edit(query,text,mirror_panel_keyboard(rows))
         else:await message.reply_text(text,reply_markup=mirror_panel_keyboard(rows))
 
@@ -215,27 +215,43 @@ class ControlHandlers:
         if 'channel' not in str(chat.type).lower():raise RuntimeError('Selected chat is not a channel.')
         return {'chat_id':chat.id,'title':chat.title or str(chat.id),'ref':str(ref)}
 
+    async def _resolve_mirror_destination(self,ref):
+        candidate=await self._resolve_mirror_source(ref);me=await self.runtime.client.get_me()
+        member=await self.runtime.client.get_chat_member(candidate['chat_id'],me.id)
+        if str(member.status).lower() not in {'chatmemberstatus.owner','chatmemberstatus.administrator','owner','administrator'}:
+            raise RuntimeError('The userbot must be an administrator in the destination channel.')
+        return candidate
+
     async def source_forward(self,update,context):
-        if context.user_data.get('input_mode')!='mirror_source':
+        mode=context.user_data.get('input_mode')
+        if mode not in {'mirror_source','mirror_destination'}:
             if update.message.document or update.message.video:return await self.media(update,context)
             return
         origin=getattr(update.message,'forward_origin',None);chat=getattr(origin,'chat',None)
         if not chat:return await update.message.reply_text('Forward a channel post (with forward tag), or send @username / t.me link / numeric channel ID.')
-        try:candidate=await self._resolve_mirror_source(chat.id)
-        except Exception as exc:return await update.message.reply_text(f'❌ Could not resolve source: {exc}')
-        context.user_data['mirror_candidate']=candidate;context.user_data.pop('input_mode',None)
-        await update.message.reply_text(f"Confirm source channel:\n\n{candidate['title']}\nID: {candidate['chat_id']}\n\nA same-name destination channel will be created.",reply_markup=mirror_confirm_keyboard())
+        try:candidate=await (self._resolve_mirror_destination(chat.id) if mode=='mirror_destination' else self._resolve_mirror_source(chat.id))
+        except Exception as exc:return await update.message.reply_text(f'❌ Could not resolve channel: {exc}')
+        context.user_data.pop('input_mode',None)
+        if mode=='mirror_destination':
+            context.user_data['mirror_destination']=candidate;target=int(await self.db.setting('mirror_initial_episode','373'))
+            return await update.message.reply_text(f"Confirm existing destination:\n\n{candidate['title']}\nID: {candidate['chat_id']}\n\nOnly overall Episode {target} will be processed. Future episodes stay paused.",reply_markup=mirror_destination_confirm_keyboard(target))
+        context.user_data['mirror_candidate']=candidate
+        await update.message.reply_text(f"Source selected:\n\n{candidate['title']}\nID: {candidate['chat_id']}\n\nChoose whether to create a new destination or connect one you already manage.",reply_markup=mirror_confirm_keyboard())
 
     async def text(self, update, context):
         mode = context.user_data.get("input_mode"); text = update.message.text.strip()
-        if mode=='mirror_source':
+        if mode in {'mirror_source','mirror_destination'}:
             ref=text
             if 't.me/' in ref:ref='@'+ref.rstrip('/').rsplit('/',1)[-1]
             elif ref.lstrip('-').isdigit():ref=int(ref)
-            try:candidate=await self._resolve_mirror_source(ref)
-            except Exception as exc:return await update.message.reply_text(f'❌ Could not resolve source: {exc}\nSend another source or cancel.')
-            context.user_data['mirror_candidate']=candidate;context.user_data.pop('input_mode',None)
-            return await update.message.reply_text(f"Confirm source channel:\n\n{candidate['title']}\nID: {candidate['chat_id']}\n\nA same-name destination channel will be created.",reply_markup=mirror_confirm_keyboard())
+            try:candidate=await (self._resolve_mirror_destination(ref) if mode=='mirror_destination' else self._resolve_mirror_source(ref))
+            except Exception as exc:return await update.message.reply_text(f'❌ Could not resolve channel: {exc}\nSend another channel or cancel.')
+            context.user_data.pop('input_mode',None)
+            if mode=='mirror_destination':
+                context.user_data['mirror_destination']=candidate;target=int(await self.db.setting('mirror_initial_episode','373'))
+                return await update.message.reply_text(f"Confirm existing destination:\n\n{candidate['title']}\nID: {candidate['chat_id']}\n\nOnly overall Episode {target} will be processed. Future episodes stay paused.",reply_markup=mirror_destination_confirm_keyboard(target))
+            context.user_data['mirror_candidate']=candidate
+            return await update.message.reply_text(f"Source selected:\n\n{candidate['title']}\nID: {candidate['chat_id']}\n\nChoose whether to create a new destination or connect one you already manage.",reply_markup=mirror_confirm_keyboard())
         if mode == "phone":
             try:
                 await self.login.send_code(self.owner_id, text); context.user_data["input_mode"] = "otp"
@@ -394,7 +410,20 @@ class ControlHandlers:
                 context.user_data.clear();context.user_data['input_mode']='mirror_source'
                 return await self._edit(query,'Send @username, t.me link, numeric channel ID, or forward any post from the source channel.\n\nThe userbot account must already be subscribed.',back_home_keyboard())
             if action=='cancel':context.user_data.clear();return await self._mirror_panel(query=query)
-            if action=='confirm':
+            if action=='connect':
+                if not context.user_data.get('mirror_candidate'):return await self._edit(query,'Source selection expired. Select it again.',mirror_panel_keyboard())
+                context.user_data['input_mode']='mirror_destination'
+                return await self._edit(query,'🔗 Connect Existing Destination\n\nSend its @username, t.me link, numeric channel ID, or forward one of its posts.\n\nThe userbot must already be an administrator there.',back_home_keyboard())
+            if action=='connect_confirm':
+                source=context.user_data.get('mirror_candidate');destination=context.user_data.get('mirror_destination')
+                if not source or not destination:return await self._edit(query,'Source or destination selection expired. Start again.',mirror_panel_keyboard())
+                if not await self.db.setting('mirror_updates_image',''):
+                    return await self._edit(query,'⚠️ Configure Settings → Source Mirror Profiles → Anime Promotion Image first. Your source and destination selections are still saved.',mirror_destination_confirm_keyboard(int(await self.db.setting('mirror_initial_episode','373'))))
+                try:source_id,invite=await connect_existing_source(self.runtime.worker.ctx,source['chat_id'],source['ref'],source['title'],destination['chat_id'])
+                except Exception as exc:return await self._edit(query,f'❌ Could not connect destination: {exc}',mirror_confirm_keyboard())
+                context.user_data.clear();target=await self.db.setting('mirror_initial_episode','373')
+                return await self._edit(query,f'✅ Existing destination connected.\n\nProcessing only overall Episode {target} from files already in that channel. Captions, batch link, final post, and anime update will be created. Future episodes remain paused until you confirm.',mirror_panel_keyboard())
+            if action=='create':
                 candidate=context.user_data.get('mirror_candidate')
                 if not candidate:return await self._edit(query,'Source confirmation expired. Select it again.',mirror_panel_keyboard())
                 if not self.runtime.running:return await self._edit(query,'Userbot is not connected.',back_home_keyboard())
@@ -527,7 +556,7 @@ class ControlHandlers:
     async def photo(self,update,context):
         key=context.user_data.get("setting_key")
         if context.user_data.get("input_mode")!="setting" or not key or SETTING_DEFS.get(key,{}).get("kind")!="photo":
-            return await update.message.reply_text("Open Settings → Catalog Defaults → Promotion Image first.",reply_markup=back_home_keyboard())
+            return await update.message.reply_text("Open Settings and choose a photo field first.",reply_markup=back_home_keyboard())
         value=update.message.photo[-1].file_id
         await self._save_setting(key,value);self._clear_input(context)
         await update.message.reply_text(f"✅ {SETTING_DEFS[key]['title']} saved.",reply_markup=field_keyboard(key))

@@ -1,4 +1,4 @@
-from pipeline.source_mirror import BATCH_STORAGE_SETTLE_SECONDS, _channel_title, _season_post
+from pipeline.source_mirror import BATCH_STORAGE_SETTLE_SECONDS, _channel_title, _season_post, _connected_episode
 
 
 def test_season_post_matches_exact_compact_layout():
@@ -25,3 +25,9 @@ def test_hindi_dubbed_channel_suffix_is_replaced():
     assert _channel_title("Spy x family Hindi Dubbed") == "Spy x family In Hindi"
     assert _channel_title("Spy x family Hindi Dubbed Available") == "Spy x family In Hindi"
     assert _channel_title("Spy x family (In Hindi)") == "Spy x family In Hindi"
+
+
+def test_connected_naruto_understands_local_and_overall_numbering():
+    assert _connected_episode('Naruto S18E01 480p', 'Naruto Shippuden') == (18, 1, 373)
+    assert _connected_episode('season S18 episode E373 720p', 'Naruto Shippuden') == (18, 1, 373)
+    assert _connected_episode('Naruto (S - 18) Episode: 01 [ 373 ]', 'Naruto Shippuden') == (18, 1, 373)

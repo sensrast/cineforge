@@ -44,7 +44,8 @@ CREATE TABLE IF NOT EXISTS mirror_sources (
  status TEXT NOT NULL DEFAULT 'awaiting_confirmation', current_season INTEGER DEFAULT 0,
  current_episode INTEGER DEFAULT 0, last_source_message_id INTEGER DEFAULT 0, end_sticker_file_id TEXT,
  current_end_sticker_message_id INTEGER, current_end_text_message_id INTEGER,
- catalog_added INTEGER DEFAULT 0,
+ catalog_added INTEGER DEFAULT 0, connection_mode TEXT DEFAULT 'created', sync_limit_episode INTEGER,
+ initial_batch_link TEXT, initial_final_post_id INTEGER, initial_update_post_id INTEGER,
  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS mirror_season_stickers (
@@ -102,4 +103,7 @@ INSERT OR IGNORE INTO settings(key,value) VALUES
  ('promotion_button_text','Click here to start and get Movie'),
  ('promotion_updates_sticker',''),('created_channels_folder_enabled','true'),
  ('created_channels_folder_name','🎬 Movie Channels'),
+ ('mirror_file_caption_template','‣ Naruto (S - {season})\n╭────────────────────\n┣Quality: {quality}\n┣Episode: {episode}\n┣Audio: Hindi #O𝖿𝖿𝗂𝖼𝗂𝖺𝗅\n╰────────────────────\n‣ Powered By: [@india\_Crunchyroll](https://t.me/india_Crunchyroll)\n[@YCAnime](https://t.me/YCAnime)'),
+ ('mirror_final_post_template','✦ Naruto Shippuden ✦\n╔━━━━━━━━━━━━━━━━━━━━━╗\n⌲ season : {season}\n❍ 𝗘𝗽𝗶𝘀𝗼𝗱𝗲: {episode:02d} [ {overall_episode} ]\n〄 𝗔𝘂𝗱𝗶𝗼: Hindi\n◎ 𝗧𝗼𝘁𝗮𝗹 episodes: {total_episodes}\n♡ 𝗣𝗼𝘄𝗲𝗿𝗲𝗱 𝗯𝘆: [@YCAnime](https://t.me/YCAnime) , [@India\_crunchyroll](https://t.me/India_crunchyroll)\n╚━━━━━━━━━━━━━━━━━━━━━╝'),
+ ('mirror_updates_channel','-1002072936982'),('mirror_updates_image',''),('mirror_initial_episode','373'),('mirror_total_episodes','500'),
  ('auto_catalog','true'),('pipeline_paused','false');

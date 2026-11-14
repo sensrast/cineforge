@@ -37,6 +37,12 @@ class Database:
             await self.conn.execute("ALTER TABLE mirror_sources ADD COLUMN current_end_text_message_id INTEGER")
         if "catalog_added" not in mirror_columns:
             await self.conn.execute("ALTER TABLE mirror_sources ADD COLUMN catalog_added INTEGER DEFAULT 0")
+        for column,definition in {
+            "connection_mode":"TEXT DEFAULT 'created'","sync_limit_episode":"INTEGER",
+            "initial_batch_link":"TEXT","initial_final_post_id":"INTEGER","initial_update_post_id":"INTEGER",
+        }.items():
+            if column not in mirror_columns:
+                await self.conn.execute(f"ALTER TABLE mirror_sources ADD COLUMN {column} {definition}")
         state_columns={row[1] for row in await (await self.conn.execute("PRAGMA table_info(pipeline_state)")).fetchall()}
         if "backup_done" not in state_columns:
             await self.conn.execute("ALTER TABLE pipeline_state ADD COLUMN backup_done INTEGER DEFAULT 0")
