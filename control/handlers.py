@@ -4,6 +4,7 @@ from telegram import Update
 from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 from utils.github_store import persist_state
+from utils.safe_dialogs import iter_dialogs
 from control.keyboards import (
     SETTING_DEFS, CATEGORIES, display_value, home_keyboard, settings_root_keyboard,
     category_keyboard, field_keyboard, input_cancel_keyboard, confirmation_keyboard,
@@ -211,7 +212,16 @@ class ControlHandlers:
 
     async def _resolve_mirror_source(self,ref):
         if not self.runtime.running:raise RuntimeError('Userbot must be connected first.')
-        chat=await self.runtime.client.get_chat(ref)
+        try:chat=await self.runtime.client.get_chat(ref)
+        except (KeyError,ValueError) as exc:
+            if not str(ref).lstrip('-').isdigit():raise
+            wanted=int(ref);chat=None
+            # Numeric IDs for older private channels need their access hash
+            # hydrated from the complete dialog list before get_chat can work.
+            async for dialog in iter_dialogs(self.runtime.client,limit=5000):
+                if int(dialog.chat.id)==wanted:chat=dialog.chat;break
+            if chat is None:
+                raise RuntimeError('Channel is not in the userbot account dialogs. Join it with the userbot first, then try again.') from exc
         if 'channel' not in str(chat.type).lower():raise RuntimeError('Selected chat is not a channel.')
         return {'chat_id':chat.id,'title':chat.title or str(chat.id),'ref':str(ref)}
 
