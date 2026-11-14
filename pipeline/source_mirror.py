@@ -70,6 +70,9 @@ async def create_source(ctx:PipelineContext,source_chat_id:int,source_ref:str,ti
  await notify_control_bot(ctx.cfg.control_token,ctx.cfg.owner_id,f'✅ Mirror destination created for {title}:\n{invite}')
  return source_id,seasons,invite
 
+def _saved_template(value:str)->str:
+ return (value or '').replace('\\\\n','\n').replace('\\n','\n').replace('\\\\_','\\_')
+
 def _connected_episode(text:str,title:str)->tuple[int|None,int|None,int|None]:
  season,episode=detect_episode(text or '')
  if season is None:
@@ -94,8 +97,8 @@ def _connected_episode(text:str,title:str)->tuple[int|None,int|None,int|None]:
 async def _process_connected_destination(ctx:PipelineContext,source_id:int)->None:
  try:
   row=await ctx.db.db.fetchone('SELECT * FROM mirror_sources WHERE id=?',(source_id,));channel=int(row['destination_chat_id'])
-  target=int(row['sync_limit_episode'] or 0);caption_template=await ctx.db.setting('mirror_file_caption_template',CAPTION)
-  final_template=await ctx.db.setting('mirror_final_post_template','');total=int(await ctx.db.setting('mirror_total_episodes','500'))
+  target=int(row['sync_limit_episode'] or 0);caption_template=_saved_template(await ctx.db.setting('mirror_file_caption_template',CAPTION))
+  final_template=_saved_template(await ctx.db.setting('mirror_final_post_template',''));total=int(await ctx.db.setting('mirror_total_episodes','500'))
   candidates=[]
   async for message in ctx.client.get_chat_history(channel):
    media=_media(message)
