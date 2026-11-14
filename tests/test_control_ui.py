@@ -1,4 +1,4 @@
-from control.keyboards import home_keyboard, ingest_keyboard, operations_keyboard, premium_sources_keyboard
+from control.keyboards import home_keyboard, ingest_keyboard, operations_keyboard, premium_sources_keyboard, mirror_connected_view_keyboard
 
 
 def callbacks(markup):
@@ -35,3 +35,10 @@ def test_operations_pause_resume_is_contextual():
 
 def test_premium_sources_returns_to_ingest_hub():
     assert callbacks(premium_sources_keyboard())[-1] == 'nav:ingest'
+
+
+def test_connected_source_detail_has_no_connect_source_button():
+    row={'id':4,'status':'paused','sync_limit_episode':375}
+    markup=mirror_connected_view_keyboard(row)
+    assert 'mirror:add' not in callbacks(markup)
+    assert 'mirror:process:4:376' in callbacks(markup)

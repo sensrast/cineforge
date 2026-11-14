@@ -9,10 +9,10 @@ from control.keyboards import (
     SETTING_DEFS, CATEGORIES, display_value, home_keyboard, settings_root_keyboard,
     category_keyboard, field_keyboard, input_cancel_keyboard, confirmation_keyboard,
     back_home_keyboard, status_keyboard, content_type_keyboard,manual_upload_keyboard,
-    mirror_panel_keyboard,mirror_confirm_keyboard,mirror_destination_confirm_keyboard,
+    mirror_panel_keyboard,mirror_connected_view_keyboard,mirror_confirm_keyboard,mirror_destination_confirm_keyboard,
     ingest_keyboard,operations_keyboard,premium_sources_keyboard,
 )
-from pipeline.source_mirror import create_source,connect_existing_source,save_season_sticker,save_end_sticker,missing_seasons
+from pipeline.source_mirror import create_source,connect_existing_source,process_connected_episode,save_season_sticker,save_end_sticker,missing_seasons
 from control.manual_upload import detect_quality,detect_episode,assign_qualities,summary
 
 CFG_ATTRS = {
@@ -447,12 +447,26 @@ class ControlHandlers:
                     return await self._edit(query,f"✅ Destination created:\n{invite}\n\nNow send the custom sticker for Season {seasons[0]}. After all season stickers, I will ask for your End-of-Season sticker.",back_home_keyboard())
                 context.user_data.update(input_mode='mirror_end_sticker',mirror_source_id=source_id)
                 return await self._edit(query,f'✅ Destination created:\n{invite}\n\nNow send the End-of-Season sticker.',back_home_keyboard())
+            if action=='process':
+                source_id=int(parts[2]);episode=int(parts[3]);row=await self.db.db.fetchone('SELECT * FROM mirror_sources WHERE id=?',(source_id,))
+                if not row:return await self._edit(query,'Mirror not found.',mirror_panel_keyboard())
+                try:await process_connected_episode(self.runtime.worker.ctx,source_id,episode)
+                except Exception as exc:return await self._edit(query,f'❌ Could not start Episode {episode}: {exc}',mirror_connected_view_keyboard(row))
+                row=await self.db.db.fetchone('SELECT * FROM mirror_sources WHERE id=?',(source_id,))
+                return await self._edit(query,f"🔄 {row['source_title']}\n\nEpisode {episode} is processing from files already present in the destination. Future episodes remain paused.",mirror_connected_view_keyboard(row))
             if action=='view':
-                source_id=int(parts[2]);row=await self.db.db.fetchone('SELECT * FROM mirror_sources WHERE id=?',(source_id,));missing=await missing_seasons(self.runtime.worker.ctx,source_id) if row and self.runtime.running else []
+                source_id=int(parts[2]);row=await self.db.db.fetchone('SELECT * FROM mirror_sources WHERE id=?',(source_id,))
+                if not row:return await self._edit(query,'Mirror not found.',mirror_panel_keyboard())
+                if row['connection_mode']=='existing':
+                    text=(f"🔗 {row['source_title']}\n\nStatus: {row['status'].replace('_',' ').title()}\n"
+                          f"Destination: {row['invite_link']}\nEpisode target: {row['sync_limit_episode'] or 'Not set'}")
+                    if row['initial_batch_link']:text+=f"\nBatch link: {row['initial_batch_link']}"
+                    return await self._edit(query,text,mirror_connected_view_keyboard(row))
+                missing=await missing_seasons(self.runtime.worker.ctx,source_id) if self.runtime.running else []
                 if missing:context.user_data.update(input_mode='mirror_sticker',mirror_source_id=source_id,mirror_seasons=missing)
-                elif row and not row['end_sticker_file_id']:context.user_data.update(input_mode='mirror_end_sticker',mirror_source_id=source_id)
-                prompt=(f"\n\nSend Season {missing[0]} sticker now." if missing else "\n\nSend the End-of-Season sticker now." if row and not row['end_sticker_file_id'] else '')
-                return await self._edit(query,(f"🔄 {row['source_title']}\nStatus: {row['status']}\nDestination: {row['invite_link']}"+prompt) if row else 'Mirror not found.',mirror_panel_keyboard())
+                elif not row['end_sticker_file_id']:context.user_data.update(input_mode='mirror_end_sticker',mirror_source_id=source_id)
+                prompt=(f"\n\nSend Season {missing[0]} sticker now." if missing else "\n\nSend the End-of-Season sticker now." if not row['end_sticker_file_id'] else '')
+                return await self._edit(query,f"🔄 {row['source_title']}\nStatus: {row['status']}\nDestination: {row['invite_link']}"+prompt,mirror_panel_keyboard())
         if data.startswith("addmode:"):
             kind=data.split(":",1)[1];context.user_data.clear();context.user_data.update(input_mode="single_typed",content_type=kind)
             return await self._edit(query,f"Send the {kind} title.",back_home_keyboard())

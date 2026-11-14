@@ -126,6 +126,19 @@ def mirror_panel_keyboard(rows=()) -> InlineKeyboardMarkup:
     buttons.append([InlineKeyboardButton("⬅️ Back to Home",callback_data="nav:home")])
     return InlineKeyboardMarkup(buttons)
 
+def mirror_connected_view_keyboard(row) -> InlineKeyboardMarkup:
+    status=str(row['status']);target=int(row['sync_limit_episode'] or 0)
+    rows=[]
+    if status=='failed':
+        rows.append([InlineKeyboardButton(f"🔄 Retry Episode {target}",callback_data=f"mirror:process:{row['id']}:{target}")])
+    elif status in {'paused','live'}:
+        rows.append([InlineKeyboardButton(f"▶️ Process Episode {target+1}",callback_data=f"mirror:process:{row['id']}:{target+1}")])
+    rows += [
+        [InlineKeyboardButton("🔄 Refresh",callback_data=f"mirror:view:{row['id']}")],
+        [InlineKeyboardButton("⬅️ Source Mirrors",callback_data="mirror:panel")],
+    ]
+    return InlineKeyboardMarkup(rows)
+
 def mirror_confirm_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("✨ Create New Destination",callback_data="mirror:create")],
