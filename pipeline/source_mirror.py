@@ -128,7 +128,9 @@ async def _process_connected_destination(ctx:PipelineContext,source_id:int)->Non
    if not item['quality']:item['quality']=labels[min(index,len(labels)-1)]
   for item in sorted(ranked,key=lambda value:value['message'].id):
    caption=caption_template.format(title='Naruto',season=item['season'],episode=item['episode'],quality=item['quality'],overall_episode=target,total_episodes=total)
-   await ctx.client.edit_message_caption(channel,item['message'].id,caption=caption)
+   try:await ctx.client.edit_message_caption(channel,item['message'].id,caption=caption)
+   except Exception as exc:
+    if 'message_not_modified' not in str(exc).lower():raise
   ordered=sorted(ranked,key=lambda item:item['message'].id);before=await latest_id(ctx.client,ANIME_FILESTORE_BOT)
   await ctx.client.send_message(ANIME_FILESTORE_BOT,'/batch');await asyncio.sleep(2)
   await ctx.client.forward_messages(ANIME_FILESTORE_BOT,channel,ordered[0]['message'].id);await asyncio.sleep(2)
