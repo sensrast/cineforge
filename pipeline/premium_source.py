@@ -179,7 +179,9 @@ async def register(ctx:PipelineContext):
   async for dialog in iter_dialogs(ctx.client,limit=2000):
    unresolved.discard(int(dialog.chat.id))
    if not unresolved:break
- if unresolved:raise RuntimeError('Premium source channel is not present in the user session dialogs: '+','.join(map(str,unresolved)))
+ if unresolved:
+  log.warning('Skipping premium sources unavailable to the user session: %s',','.join(map(str,unresolved)))
+  rows=[row for row in rows if int(row['source_chat_id']) not in unresolved]
  if not _REGISTERED:
   async def handler(client,message):
    row=await ctx.db.db.fetchone("SELECT * FROM premium_sources WHERE source_chat_id=? AND status='live'",(message.chat.id,))
