@@ -128,7 +128,13 @@ async def _process_connected_destination(ctx:PipelineContext,source_id:int)->Non
   temporary_id=int(temporary['message_id']);await ctx.client.send_message('@'+provider,'/genlink');await asyncio.sleep(1);provider_before=await latest_id(ctx.client,'@'+provider)
   await ctx.client.forward_messages('@'+provider,channel,temporary_id)
   generated=await generate_modern_provider_link(ctx,provider,provider_before,max(120,ctx.cfg.flow_timeout))
-  update=await bot_api_request(ctx.cfg.control_token,'sendPhoto',{'chat_id':updates,'photo':image,'caption':final_text,'parse_mode':'Markdown','reply_markup':{'inline_keyboard':[[{'text':'❐ 𝗪𝗮𝘁𝗰𝗵/𝗗𝗼𝘄𝗻𝗹𝗼𝗮𝗱 ❐','url':generated}]]}});update_id=int(update['message_id'])
+  updates_template=_saved_template(await ctx.db.setting('mirror_updates_post_template','🍎 {title}\n\n🥳 season {season} episode {episode} Added ....!🌟'))
+  summary=updates_template.format(title='Naruto Shippuden',season=season,episode=episode)
+  updates_text=(f'<b>{summary.splitlines()[0]}</b>\n\n'
+                f'<blockquote><b>{" ".join(summary.splitlines()[1:]).strip()}</b></blockquote>\n\n'
+                f'<a href="{generated}">Click here to start and get episode</a>\n'
+                f'<a href="{generated}">Click here to start and get episode</a>')
+  update=await bot_api_request(ctx.cfg.control_token,'sendMessage',{'chat_id':updates,'text':updates_text,'parse_mode':'HTML','disable_web_page_preview':True});update_id=int(update['message_id'])
   try:await bot_api_request(ctx.cfg.control_token,'deleteMessage',{'chat_id':channel,'message_id':temporary_id})
   except Exception:pass
   await ctx.db.db.execute("UPDATE mirror_sources SET status='paused',current_season=?,current_episode=?,initial_batch_link=?,initial_final_post_id=?,initial_update_post_id=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",(season,episode,batch_link,final_id,update_id,source_id));await persist_state(ctx.db)

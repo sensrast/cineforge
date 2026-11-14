@@ -49,7 +49,8 @@ SETTING_DEFS: dict[str, dict[str, Any]] = {
     "mirror_file_caption_template": {"title": "Connected-file Caption", "category": "mirrors", "kind": "template", "help": "Caption for files already present in a connected destination. Supports {season}, {episode}, and {quality}."},
     "mirror_final_post_template": {"title": "Anime Final Post", "category": "mirrors", "kind": "template", "help": "Supports {season}, {episode}, {overall_episode}, and {total_episodes}."},
     "mirror_updates_channel": {"title": "Anime Updates Channel", "category": "mirrors", "kind": "text", "help": "Numeric channel ID or @username for anime update posts."},
-    "mirror_updates_image": {"title": "Anime Promotion Image", "category": "mirrors", "kind": "photo", "help": "Reusable image for anime link generation and the main updates-channel post."},
+    "mirror_updates_image": {"title": "Anime Link-provider Image", "category": "mirrors", "kind": "photo", "help": "Reusable image sent with the channel link to the link-provider bot. The final updates post remains text-only."},
+    "mirror_updates_post_template": {"title": "Anime Updates Post", "category": "mirrors", "kind": "template", "help": "Text-only updates post. Supports {title}, {season}, and {episode}. Two generated-link lines are added automatically."},
     "mirror_initial_episode": {"title": "Initial Overall Episode", "category": "mirrors", "kind": "int_positive", "help": "Only this overall episode is processed when first connecting an existing destination. The source remains paused afterward."},
     "mirror_total_episodes": {"title": "Anime Total Episodes", "category": "mirrors", "kind": "int_positive", "help": "Value inserted into {total_episodes} in the final post."},
 }

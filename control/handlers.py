@@ -226,6 +226,7 @@ class ControlHandlers:
         mode=context.user_data.get('input_mode')
         if mode not in {'mirror_source','mirror_destination'}:
             if update.message.document or update.message.video:return await self.media(update,context)
+            if update.message.photo:return await self.photo(update,context)
             return
         origin=getattr(update.message,'forward_origin',None);chat=getattr(origin,'chat',None)
         if not chat:return await update.message.reply_text('Forward a channel post (with forward tag), or send @username / t.me link / numeric channel ID.')
