@@ -57,10 +57,10 @@ async def add_filestore_admin(ctx:PipelineContext,qid:int|None,channel_id:int,us
  bot=await ctx.speed.call(lambda:ctx.client.get_users(username),qid)
  try:await ctx.speed.call(lambda:ctx.client.add_chat_members(channel_id,bot.id),qid)
  except Exception as exc:
-  if not any(value in str(exc).lower() for value in ('already','participant','admin')):raise RuntimeError(f'Could not add @{username} to the channel: {exc}') from exc
+  if not any(value in str(exc).lower() for value in ('already_participant','already a participant')):raise RuntimeError(f'Could not add @{username} to the channel: {exc}') from exc
  try:await ctx.speed.call(lambda:ctx.client.promote_chat_member(channel_id,bot.id,FILESTORE_PRIVILEGES),qid)
  except Exception as exc:
-  if 'already' not in str(exc).lower() and 'admin' not in str(exc).lower():raise RuntimeError(f'Could not add @{username} as channel administrator: {exc}') from exc
+  if not any(value in str(exc).lower() for value in ('not_modified','already')):raise RuntimeError(f'Could not add @{username} as channel administrator: {exc}') from exc
  await ctx.db.log(f'@{username} added directly as file-store administrator','INFO',qid);return bot.id
 
 async def add_control_bot_admin(ctx:PipelineContext,qid:int,channel_id:int)->int:
@@ -69,10 +69,10 @@ async def add_control_bot_admin(ctx:PipelineContext,qid:int,channel_id:int)->int
  bot=await ctx.speed.call(lambda:ctx.client.get_users(username),qid)
  try:await ctx.speed.call(lambda:ctx.client.add_chat_members(channel_id,bot.id),qid)
  except Exception as exc:
-  if not any(value in str(exc).lower() for value in ('already','participant','admin')):raise RuntimeError(f'Could not add @{username} to the channel: {exc}') from exc
+  if not any(value in str(exc).lower() for value in ('already_participant','already a participant')):raise RuntimeError(f'Could not add @{username} to the channel: {exc}') from exc
  try:await ctx.speed.call(lambda:ctx.client.promote_chat_member(channel_id,bot.id,CONTROL_PRIVILEGES),qid)
  except Exception as exc:
-  if 'already' not in str(exc).lower() and 'admin' not in str(exc).lower():raise RuntimeError(f'Could not add @{username} as channel administrator: {exc}') from exc
+  if not any(value in str(exc).lower() for value in ('not_modified','already')):raise RuntimeError(f'Could not add @{username} as channel administrator: {exc}') from exc
  await ctx.db.log('Control bot added as administrator for inline-button posts','INFO',qid);return bot.id
 
 async def _modernize_control_bot(ctx:PipelineContext,qid:int,channel_id:int,username:str)->bool:

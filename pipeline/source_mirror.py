@@ -175,10 +175,13 @@ async def _process_connected_destination(ctx:PipelineContext,source_id:int)->Non
   log.exception('Connected destination setup failed');await ctx.db.db.execute("UPDATE mirror_sources SET status='failed',updated_at=CURRENT_TIMESTAMP WHERE id=?",(source_id,));await persist_state(ctx.db);await notify_control_bot(ctx.cfg.control_token,ctx.cfg.owner_id,f'❌ Connected destination setup failed: {exc}')
 
 async def process_connected_episode(ctx:PipelineContext,source_id:int,overall_episode:int)->None:
- row=await ctx.db.db.fetchone('SELECT connection_mode FROM mirror_sources WHERE id=?',(source_id,))
+ row=await ctx.db.db.fetchone('SELECT * FROM mirror_sources WHERE id=?',(source_id,))
  if not row or row['connection_mode']!='existing':raise RuntimeError('This is not a connected-destination profile.')
- await ctx.db.db.execute("UPDATE mirror_sources SET sync_limit_episode=?,status='processing_existing',initial_batch_link=NULL,initial_final_post_id=NULL,initial_update_post_id=NULL,initial_provider_link=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?",(int(overall_episode),source_id));await persist_state(ctx.db)
- _spawn(_process_connected_destination(ctx,source_id),f'mirror-connected-{source_id}-{overall_episode}')
+ if int(row['sync_limit_episode'] or 0)==int(overall_episode):
+  await ctx.db.db.execute("UPDATE mirror_sources SET status='processing_existing',updated_at=CURRENT_TIMESTAMP WHERE id=?",(source_id,))
+ else:
+  await ctx.db.db.execute("UPDATE mirror_sources SET sync_limit_episode=?,status='processing_existing',initial_batch_link=NULL,initial_final_post_id=NULL,initial_update_post_id=NULL,initial_provider_link=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?",(int(overall_episode),source_id))
+ await persist_state(ctx.db);_spawn(_process_connected_destination(ctx,source_id),f'mirror-connected-{source_id}-{overall_episode}')
 
 async def connect_existing_source(ctx:PipelineContext,source_chat_id:int,source_ref:str,title:str,destination_chat_id:int)->tuple[int,str]:
  existing=await ctx.db.db.fetchone('SELECT id FROM mirror_sources WHERE source_chat_id=?',(source_chat_id,))
