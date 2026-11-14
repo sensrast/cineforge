@@ -55,6 +55,9 @@ async def _grant_modern_botapi_rights(ctx:PipelineContext,qid:int|None,channel_i
 async def add_filestore_admin(ctx:PipelineContext,qid:int|None,channel_id:int,username:str|None=None)->int:
  username=(username or ctx.cfg.filestore_bot).lstrip('@')
  bot=await ctx.speed.call(lambda:ctx.client.get_users(username),qid)
+ try:await ctx.speed.call(lambda:ctx.client.add_chat_members(channel_id,bot.id),qid)
+ except Exception as exc:
+  if not any(value in str(exc).lower() for value in ('already','participant','admin')):raise RuntimeError(f'Could not add @{username} to the channel: {exc}') from exc
  try:await ctx.speed.call(lambda:ctx.client.promote_chat_member(channel_id,bot.id,FILESTORE_PRIVILEGES),qid)
  except Exception as exc:
   if 'already' not in str(exc).lower() and 'admin' not in str(exc).lower():raise RuntimeError(f'Could not add @{username} as channel administrator: {exc}') from exc
@@ -64,6 +67,9 @@ async def add_control_bot_admin(ctx:PipelineContext,qid:int,channel_id:int)->int
  identity=await get_control_bot_identity(ctx.cfg.control_token);username=identity.get('username')
  if not username:raise RuntimeError('Control bot has no username and cannot be resolved by the userbot')
  bot=await ctx.speed.call(lambda:ctx.client.get_users(username),qid)
+ try:await ctx.speed.call(lambda:ctx.client.add_chat_members(channel_id,bot.id),qid)
+ except Exception as exc:
+  if not any(value in str(exc).lower() for value in ('already','participant','admin')):raise RuntimeError(f'Could not add @{username} to the channel: {exc}') from exc
  try:await ctx.speed.call(lambda:ctx.client.promote_chat_member(channel_id,bot.id,CONTROL_PRIVILEGES),qid)
  except Exception as exc:
   if 'already' not in str(exc).lower() and 'admin' not in str(exc).lower():raise RuntimeError(f'Could not add @{username} as channel administrator: {exc}') from exc

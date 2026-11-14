@@ -97,6 +97,7 @@ def _connected_episode(text:str,title:str)->tuple[int|None,int|None,int|None]:
 async def _process_connected_destination(ctx:PipelineContext,source_id:int)->None:
  try:
   row=await ctx.db.db.fetchone('SELECT * FROM mirror_sources WHERE id=?',(source_id,));channel=int(row['destination_chat_id'])
+  await add_control_bot_admin(ctx,None,channel);await add_filestore_admin(ctx,None,channel,ANIME_FILESTORE_BOT)
   target=int(row['sync_limit_episode'] or 0);caption_template=_saved_template(await ctx.db.setting('mirror_file_caption_template',CAPTION))
   final_template=_saved_template(await ctx.db.setting('mirror_final_post_template',''));total=int(await ctx.db.setting('mirror_total_episodes','500'))
   candidates=[]
@@ -131,31 +132,39 @@ async def _process_connected_destination(ctx:PipelineContext,source_id:int)->Non
    try:await ctx.client.edit_message_caption(channel,item['message'].id,caption=caption)
    except Exception as exc:
     if 'message_not_modified' not in str(exc).lower():raise
-  ordered=sorted(ranked,key=lambda item:item['message'].id);before=await latest_id(ctx.client,ANIME_FILESTORE_BOT)
-  await ctx.client.send_message(ANIME_FILESTORE_BOT,'/batch');await asyncio.sleep(2)
-  await ctx.client.forward_messages(ANIME_FILESTORE_BOT,channel,ordered[0]['message'].id);await asyncio.sleep(2)
-  await ctx.client.forward_messages(ANIME_FILESTORE_BOT,channel,ordered[-1]['message'].id)
-  try:batch_link=await wait_for_batch_link(ctx.client,ANIME_FILESTORE_BOT,before,ctx.cfg.flow_timeout,1200)
-  except ModernBatchResponseRequired:batch_link=await wait_modern_filestore_link(ctx,ANIME_FILESTORE_BOT,before,1200)
+  ordered=sorted(ranked,key=lambda item:item['message'].id);batch_link=row['initial_batch_link'] or ''
+  if not batch_link:
+   before=await latest_id(ctx.client,ANIME_FILESTORE_BOT)
+   await ctx.client.send_message(ANIME_FILESTORE_BOT,'/batch');await asyncio.sleep(2)
+   await ctx.client.forward_messages(ANIME_FILESTORE_BOT,channel,ordered[0]['message'].id);await asyncio.sleep(2)
+   await ctx.client.forward_messages(ANIME_FILESTORE_BOT,channel,ordered[-1]['message'].id)
+   try:batch_link=await wait_for_batch_link(ctx.client,ANIME_FILESTORE_BOT,before,ctx.cfg.flow_timeout,1200)
+   except ModernBatchResponseRequired:batch_link=await wait_modern_filestore_link(ctx,ANIME_FILESTORE_BOT,before,1200)
+   await ctx.db.db.execute('UPDATE mirror_sources SET initial_batch_link=?,updated_at=CURRENT_TIMESTAMP WHERE id=?',(batch_link,source_id));await persist_state(ctx.db)
   season=int(ordered[0]['season']);episode=int(ordered[0]['episode'])
   final_text=final_template.format(title='Naruto Shippuden',season=season,episode=episode,overall_episode=target,total_episodes=total)
-  result=await bot_api_request(ctx.cfg.control_token,'sendMessage',{'chat_id':channel,'text':final_text,'parse_mode':'Markdown','disable_web_page_preview':True,'reply_markup':{'inline_keyboard':[[{'text':'❐ 𝗪𝗮𝘁𝗰𝗵/𝗗𝗼𝘄𝗻𝗹𝗼𝗮𝗱 ❐','url':batch_link}]]}})
-  final_id=int(result['message_id']);update_id=None
-  image=await ctx.db.setting('mirror_updates_image','');updates=await ctx.db.setting('mirror_updates_channel','-1002072936982')
-  if not image:raise RuntimeError('Anime Promotion Image is not configured in Settings → Source Mirror Profiles')
-  provider=(await ctx.db.setting('promotion_link_provider','Yclinkproviderbot')).lstrip('@');temporary=await bot_api_request(ctx.cfg.control_token,'sendPhoto',{'chat_id':channel,'photo':image,'caption':f'Channel link 🔗 👇👇\n\n{row["invite_link"]}\n{row["invite_link"]}'})
-  temporary_id=int(temporary['message_id']);await ctx.client.send_message('@'+provider,'/genlink');await asyncio.sleep(1);provider_before=await latest_id(ctx.client,'@'+provider)
-  await ctx.client.forward_messages('@'+provider,channel,temporary_id)
-  generated=await generate_modern_provider_link(ctx,provider,provider_before,max(120,ctx.cfg.flow_timeout))
-  updates_template=_saved_template(await ctx.db.setting('mirror_updates_post_template','🍎 {title}\n\n🥳 season {season} episode {episode} Added ....!🌟'))
-  summary=updates_template.format(title='Naruto Shippuden',season=season,episode=episode)
-  updates_text=(f'<b>{summary.splitlines()[0]}</b>\n\n'
-                f'<blockquote><b>{" ".join(summary.splitlines()[1:]).strip()}</b></blockquote>\n\n'
-                f'<a href="{generated}">Click here to start and get episode</a>\n'
-                f'<a href="{generated}">Click here to start and get episode</a>')
-  update=await bot_api_request(ctx.cfg.control_token,'sendMessage',{'chat_id':updates,'text':updates_text,'parse_mode':'HTML','disable_web_page_preview':True});update_id=int(update['message_id'])
-  try:await bot_api_request(ctx.cfg.control_token,'deleteMessage',{'chat_id':channel,'message_id':temporary_id})
-  except Exception:pass
+  final_id=int(row['initial_final_post_id'] or 0)
+  if not final_id:
+   result=await bot_api_request(ctx.cfg.control_token,'sendMessage',{'chat_id':channel,'text':final_text,'parse_mode':'Markdown','disable_web_page_preview':True,'reply_markup':{'inline_keyboard':[[{'text':'❐ 𝗪𝗮𝘁𝗰𝗵/𝗗𝗼𝘄𝗻𝗹𝗼𝗮𝗱 ❐','url':batch_link}]]}})
+   final_id=int(result['message_id']);await ctx.db.db.execute('UPDATE mirror_sources SET initial_final_post_id=?,updated_at=CURRENT_TIMESTAMP WHERE id=?',(final_id,source_id));await persist_state(ctx.db)
+  update_id=int(row['initial_update_post_id'] or 0)
+  if not update_id:
+   image=await ctx.db.setting('mirror_updates_image','');updates=await ctx.db.setting('mirror_updates_channel','-1002072936982')
+   if not image:raise RuntimeError('Anime Promotion Image is not configured in Settings → Source Mirror Profiles')
+   provider=(await ctx.db.setting('promotion_link_provider','Yclinkproviderbot')).lstrip('@');temporary=await bot_api_request(ctx.cfg.control_token,'sendPhoto',{'chat_id':channel,'photo':image,'caption':f'Channel link 🔗 👇👇\n\n{row["invite_link"]}\n{row["invite_link"]}'})
+   temporary_id=int(temporary['message_id']);await ctx.client.send_message('@'+provider,'/genlink');await asyncio.sleep(1);provider_before=await latest_id(ctx.client,'@'+provider)
+   await ctx.client.forward_messages('@'+provider,channel,temporary_id)
+   generated=await generate_modern_provider_link(ctx,provider,provider_before,max(120,ctx.cfg.flow_timeout))
+   updates_template=_saved_template(await ctx.db.setting('mirror_updates_post_template','🍎 {title}\n\n🥳 season {season} episode {episode} Added ....!🌟'))
+   summary=updates_template.format(title='Naruto Shippuden',season=season,episode=episode)
+   updates_text=(f'<b>{summary.splitlines()[0]}</b>\n\n'
+                 f'<blockquote><b>{" ".join(summary.splitlines()[1:]).strip()}</b></blockquote>\n\n'
+                 f'<a href="{generated}">Click here to start and get episode</a>\n'
+                 f'<a href="{generated}">Click here to start and get episode</a>')
+   update=await bot_api_request(ctx.cfg.control_token,'sendMessage',{'chat_id':updates,'text':updates_text,'parse_mode':'HTML','disable_web_page_preview':True});update_id=int(update['message_id'])
+   await ctx.db.db.execute('UPDATE mirror_sources SET initial_update_post_id=?,updated_at=CURRENT_TIMESTAMP WHERE id=?',(update_id,source_id));await persist_state(ctx.db)
+   try:await bot_api_request(ctx.cfg.control_token,'deleteMessage',{'chat_id':channel,'message_id':temporary_id})
+   except Exception:pass
   await ctx.db.db.execute("UPDATE mirror_sources SET status='paused',current_season=?,current_episode=?,initial_batch_link=?,initial_final_post_id=?,initial_update_post_id=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",(season,episode,batch_link,final_id,update_id,source_id));await persist_state(ctx.db)
   await notify_control_bot(ctx.cfg.control_token,ctx.cfg.owner_id,f'✅ Connected destination processed episode {target}. Future source episodes remain paused until your confirmation.')
  except Exception as exc:
