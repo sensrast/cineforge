@@ -105,7 +105,24 @@ async def _process_connected_destination(ctx:PipelineContext,source_id:int)->Non
    if not media:continue
    text=(message.caption or '')+' '+_file_name(message);season,episode,overall=_connected_episode(text,row['source_title'])
    if overall==target:candidates.append({'message':message,'season':season or 18,'episode':episode or 1,'quality':detect_quality(text),'size':int(getattr(media,'file_size',0) or 0)})
-  if not candidates:raise RuntimeError(f'No existing destination files were recognized as overall episode {target}')
+  if not candidates:
+   # The connected destination may be empty or one episode behind. In that
+   # case copy only the explicitly confirmed episode from the source, never
+   # the entire historical channel.
+   source_items=[]
+   async for message in ctx.client.get_chat_history(int(row['source_chat_id'])):
+    media=_media(message)
+    if not media:continue
+    text=(message.caption or '')+' '+_file_name(message);season,episode,overall=_connected_episode(text,row['source_title'])
+    if overall==target:source_items.append({'message':message,'season':season or 18,'episode':episode or max(1,target-372),'quality':detect_quality(text),'size':int(getattr(media,'file_size',0) or 0)})
+   source_ranked=sorted(source_items,key=lambda item:(item['size'],item['message'].id));labels=['480p','720p','1080p','2160p']
+   for index,item in enumerate(source_ranked):
+    if not item['quality']:item['quality']=labels[min(index,len(labels)-1)]
+   for item in sorted(source_ranked,key=lambda value:value['message'].id):
+    caption=caption_template.format(title='Naruto',season=item['season'],episode=item['episode'],quality=item['quality'],overall_episode=target,total_episodes=total)
+    copied=await ctx.client.copy_message(channel,int(row['source_chat_id']),item['message'].id,caption=caption)
+    candidates.append({**item,'message':copied})
+  if not candidates:raise RuntimeError(f'Episode {target} was found in neither the destination nor the source channel')
   ranked=sorted(candidates,key=lambda item:(item['size'],item['message'].id));labels=['480p','720p','1080p','2160p']
   for index,item in enumerate(ranked):
    if not item['quality']:item['quality']=labels[min(index,len(labels)-1)]
